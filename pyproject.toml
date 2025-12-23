@@ -1,0 +1,13 @@
+[project]
+name = "ai-stock-monitor"
+version = "0.1.0"
+description = "股票助手软件"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
