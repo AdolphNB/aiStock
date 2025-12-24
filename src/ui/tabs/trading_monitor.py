@@ -1,12 +1,14 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QTableWidget, QTableWidgetItem, QTextEdit, QPushButton, QLabel, 
-                             QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle)
+                             QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle, QMessageBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
 class TradingMonitorTab(QWidget):
     def __init__(self):
         super().__init__()
+        self.current_stock_code = None
+        self.current_stock_name = None
         self.init_ui()
 
     def init_ui(self):
@@ -25,8 +27,8 @@ class TradingMonitorTab(QWidget):
         # Watchlist
         watchlist_group = QGroupBox("自选股")
         watchlist_layout = QVBoxLayout(watchlist_group)
-        self.watchlist_table = QTableWidget(0, 5)
-        self.watchlist_table.setHorizontalHeaderLabels(["代码", "名称", "现价", "涨跌幅", "成交量"])
+        self.watchlist_table = QTableWidget(0, 4)
+        self.watchlist_table.setHorizontalHeaderLabels(["代码", "名称", "现价", "涨跌幅"])
         self.watchlist_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.watchlist_table.verticalHeader().setVisible(False)
         self.watchlist_table.setAlternatingRowColors(True)
@@ -34,6 +36,7 @@ class TradingMonitorTab(QWidget):
         self.watchlist_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.watchlist_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.watchlist_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.watchlist_table.itemClicked.connect(self.on_stock_selected)
         watchlist_layout.addWidget(self.watchlist_table)
         
         # Mini Chart
@@ -54,8 +57,8 @@ class TradingMonitorTab(QWidget):
         
         # Splitter for Left Area
         left_splitter = QSplitter(Qt.Orientation.Vertical)
-        left_splitter.addWidget(watchlist_group)
         left_splitter.addWidget(chart_group)
+        left_splitter.addWidget(watchlist_group)
         left_layout.addWidget(left_splitter)
         
         # --- Middle Area: LLM Chat ---
@@ -78,6 +81,12 @@ class TradingMonitorTab(QWidget):
         control_layout.addWidget(QLabel("提示词:"))
         control_layout.addWidget(self.prompt_selector, 1)
         
+        # Current Stock Indicator
+        control_layout.addStretch()
+        self.current_stock_label = QLabel("未选择股票")
+        self.current_stock_label.setStyleSheet("color: #888; font-style: italic;")
+        control_layout.addWidget(self.current_stock_label)
+        
         self.chat_history = QTextEdit()
         self.chat_history.setReadOnly(True)
         self.chat_history.setPlaceholderText("对话历史将显示在这里...")
@@ -86,15 +95,37 @@ class TradingMonitorTab(QWidget):
         self.chat_input.setMaximumHeight(100)
         self.chat_input.setPlaceholderText("输入您的问题，例如：分析平安银行的近期走势...")
         
-        send_btn = QPushButton("发送指令")
-        send_btn.setFixedHeight(35)
-        send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Add icon if available, or just text
+        # Action Buttons Layout
+        action_layout = QHBoxLayout()
+        
+        self.btn_send = QPushButton("发送指令")
+        self.btn_send.setFixedHeight(35)
+        self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        self.btn_accept = QPushButton("采纳")
+        self.btn_accept.setFixedHeight(35)
+        self.btn_accept.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_accept.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.btn_accept.setToolTip("采纳当前策略并加入监控列表")
+        
+        self.btn_reject = QPushButton("拒绝")
+        self.btn_reject.setFixedHeight(35)
+        self.btn_reject.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reject.setStyleSheet("background-color: #f44336; color: white; font-weight: bold;")
+        self.btn_reject.setToolTip("拒绝当前策略建议")
+
+        self.btn_accept.clicked.connect(self.on_accept_strategy)
+        self.btn_reject.clicked.connect(self.on_reject_strategy)
+        # self.btn_send.clicked.connect(self.on_send_message) 
+
+        action_layout.addWidget(self.btn_send, 3)
+        action_layout.addWidget(self.btn_accept, 1)
+        action_layout.addWidget(self.btn_reject, 1)
         
         chat_layout.addLayout(control_layout)
         chat_layout.addWidget(self.chat_history)
         chat_layout.addWidget(self.chat_input)
-        chat_layout.addWidget(send_btn)
+        chat_layout.addLayout(action_layout)
         
         middle_layout.addWidget(chat_group)
 
@@ -103,15 +134,60 @@ class TradingMonitorTab(QWidget):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
-        monitor_group = QGroupBox("策略监控")
-        monitor_layout = QVBoxLayout(monitor_group)
+        # Right Splitter (Top: Preview, Bottom: List)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
         
-        self.monitor_list = QListWidget()
-        self.monitor_list.addItem("系统初始化完成...")
-        self.monitor_list.addItem("等待策略信号...")
+        # 1. Top: Strategy Preview
+        preview_group = QGroupBox("策略预览")
+        preview_layout = QVBoxLayout(preview_group)
         
-        monitor_layout.addWidget(self.monitor_list)
-        right_layout.addWidget(monitor_group)
+        self.strategy_details = QTextEdit()
+        self.strategy_details.setReadOnly(True)
+        self.strategy_details.setPlaceholderText("请在下方列表中选择一只股票以查看策略详情...")
+        
+        # Action Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_start = QPushButton("启动")
+        self.btn_stop = QPushButton("停止")
+        self.btn_delete = QPushButton("删除")
+        
+        # Initial state: disabled
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(False)
+        self.btn_delete.setEnabled(False)
+
+        # Connect buttons
+        self.btn_start.clicked.connect(self.on_start_strategy)
+        self.btn_stop.clicked.connect(self.on_stop_strategy)
+        self.btn_delete.clicked.connect(self.on_delete_strategy)
+        
+        btn_layout.addWidget(self.btn_start)
+        btn_layout.addWidget(self.btn_stop)
+        btn_layout.addWidget(self.btn_delete)
+        
+        preview_layout.addWidget(self.strategy_details)
+        preview_layout.addLayout(btn_layout)
+        
+        # 2. Bottom: Monitored Stocks List
+        list_group = QGroupBox("监控列表")
+        list_layout = QVBoxLayout(list_group)
+        
+        self.monitor_table = QTableWidget(0, 3)
+        self.monitor_table.setHorizontalHeaderLabels(["代码", "名称", "状态"])
+        self.monitor_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.monitor_table.verticalHeader().setVisible(False)
+        self.monitor_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.monitor_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.monitor_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.monitor_table.itemClicked.connect(self.on_monitor_selected)
+        
+        list_layout.addWidget(self.monitor_table)
+        
+        right_splitter.addWidget(preview_group)
+        right_splitter.addWidget(list_group)
+        right_splitter.setSizes([300, 400])
+        
+        right_layout.addWidget(right_splitter)
 
         # Add widgets to main splitter
         main_splitter.addWidget(left_widget)
@@ -139,11 +215,11 @@ class TradingMonitorTab(QWidget):
 
     def add_sample_data(self):
         data = [
-            ("000001", "平安银行", "10.50", "+1.2%", "100万"),
-            ("600519", "贵州茅台", "1750.00", "-0.5%", "5000"),
-            ("000858", "五粮液", "150.00", "+0.8%", "20万"),
-            ("300750", "宁德时代", "200.00", "+2.5%", "30万"),
-            ("601127", "赛力斯", "88.88", "+5.2%", "50万"),
+            ("000001", "平安银行", "10.50", "+1.2%"),
+            ("600519", "贵州茅台", "1750.00", "-0.5%"),
+            ("000858", "五粮液", "150.00", "+0.8%"),
+            ("300750", "宁德时代", "200.00", "+2.5%"),
+            ("601127", "赛力斯", "88.88", "+5.2%"),
         ]
         self.watchlist_table.setRowCount(len(data))
         for row, item_data in enumerate(data):
@@ -156,4 +232,161 @@ class TradingMonitorTab(QWidget):
                     elif value.startswith("-"):
                         item.setForeground(QColor("#388e3c")) # Green
                 self.watchlist_table.setItem(row, col, item)
+
+        # --- Add Monitor Sample Data ---
+        monitor_data = [
+            ("000001", "平安银行", "运行中"),
+            ("600519", "贵州茅台", "已停止"),
+            ("300750", "宁德时代", "运行中"),
+        ]
+        self.monitor_table.setRowCount(len(monitor_data))
+        for row, item_data in enumerate(monitor_data):
+            for col, value in enumerate(item_data):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if col == 2: # Status
+                    if value == "运行中":
+                        item.setForeground(QColor("#4CAF50")) # Green
+                    else:
+                        item.setForeground(QColor("#FF5252")) # Red
+                self.monitor_table.setItem(row, col, item)
+                
+        # Mock strategy details
+        self.mock_strategies = {
+            "000001": "策略名称: 均线突破\n监控周期: 15分钟\n买入条件: MA5上穿MA20\n卖出条件: MA5下穿MA20\n止损: -2%\n止盈: +5%",
+            "600519": "策略名称: 网格交易\n监控周期: 1小时\n网格大小: 1%\n单笔金额: 50000\n当前持仓: 200股",
+            "300750": "策略名称: MACD背离\n监控周期: 30分钟\n底背离: 开启\n顶背离: 开启\n风险等级: 中",
+        }
+
+    def on_stock_selected(self, item):
+        """Handle stock selection from watchlist"""
+        row = item.row()
+        code_item = self.watchlist_table.item(row, 0)
+        name_item = self.watchlist_table.item(row, 1)
+        
+        if code_item and name_item:
+            code = code_item.text()
+            name = name_item.text()
+            
+            self.current_stock_code = code
+            self.current_stock_name = name
+            
+            self.current_stock_label.setText(f"当前分析: {name} ({code})")
+            # Update style to indicate active selection
+            self.current_stock_label.setStyleSheet("""
+                QLabel {
+                    color: #4CAF50; 
+                    font-weight: bold;
+                    border: 1px solid #4CAF50;
+                    border-radius: 4px;
+                    padding: 2px 5px;
+                }
+            """)
+            
+            # Simulate LLM providing a strategy suggestion
+            self.chat_history.append(f"<b>[系统]</b> 已选择 {name} ({code})。正在分析...")
+            self.chat_history.append(f"<b>[LLM助手]</b> 针对 {name} 的建议策略：\n"
+                                     f"- 监控周期：30分钟\n"
+                                     f"- 建议买入：突破昨日高点\n"
+                                     f"- 建议卖出：跌破5日均线\n"
+                                     f"您可以点击“采纳”将此策略加入监控，或点击“拒绝”忽略。")
+
+    def on_accept_strategy(self):
+        """Accept current LLM strategy suggestion"""
+        if not self.current_stock_code:
+            QMessageBox.warning(self, "操作提示", "请先在左侧选择一只股票进行分析。")
+            return
+            
+        code = self.current_stock_code
+        name = self.current_stock_name
+        
+        # Check if already monitored
+        for row in range(self.monitor_table.rowCount()):
+            existing_code = self.monitor_table.item(row, 0).text()
+            if existing_code == code:
+                QMessageBox.information(self, "提示", f"{name} ({code}) 已经在监控列表中。")
+                return
+
+        # Add to monitor list
+        row = self.monitor_table.rowCount()
+        self.monitor_table.insertRow(row)
+        
+        self.monitor_table.setItem(row, 0, QTableWidgetItem(code))
+        self.monitor_table.setItem(row, 1, QTableWidgetItem(name))
+        
+        status_item = QTableWidgetItem("待启动")
+        status_item.setForeground(QColor("#FFA000")) # Orange
+        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.monitor_table.setItem(row, 2, status_item)
+        
+        # Generate and save mock strategy
+        strategy_text = (f"策略名称: LLM智能推荐策略\n"
+                         f"来源: {self.model_selector.currentText()}\n"
+                         f"创建时间: 刚刚\n"
+                         f"买入条件: 智能判定\n"
+                         f"卖出条件: 智能判定\n"
+                         f"风险偏好: {self.prompt_selector.currentText()}")
+        
+        self.mock_strategies[code] = strategy_text
+        
+        self.chat_history.append(f"<span style='color: green;'><b>[系统]</b> 已采纳 {name} 的策略建议，并加入监控列表。</span>")
+        
+        # Select the new item
+        self.monitor_table.selectRow(row)
+        self.on_monitor_selected(self.monitor_table.item(row, 0))
+
+    def on_reject_strategy(self):
+        """Reject current LLM strategy suggestion"""
+        if not self.current_stock_code:
+             return
+             
+        self.chat_history.append(f"<span style='color: red;'><b>[系统]</b> 已拒绝 {self.current_stock_name} 的策略建议。</span>")
+        # Optionally clear selection or just log it
+
+
+    def on_monitor_selected(self, item):
+        row = item.row()
+        code = self.monitor_table.item(row, 0).text()
+        name = self.monitor_table.item(row, 1).text()
+        status = self.monitor_table.item(row, 2).text()
+        
+        # Update details
+        details = f"股票: {name} ({code})\n状态: {status}\n\n"
+        details += self.mock_strategies.get(code, "暂无详细策略信息")
+        self.strategy_details.setText(details)
+        
+        # Enable buttons based on status
+        self.btn_delete.setEnabled(True)
+        if status == "运行中":
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(True)
+        else:
+            self.btn_start.setEnabled(True)
+            self.btn_stop.setEnabled(False)
+            
+    def on_start_strategy(self):
+        row = self.monitor_table.currentRow()
+        if row >= 0:
+            self.monitor_table.item(row, 2).setText("运行中")
+            self.monitor_table.item(row, 2).setForeground(QColor("#4CAF50"))
+            self.on_monitor_selected(self.monitor_table.currentItem()) # Refresh UI
+            self.strategy_details.append("\n[系统] 策略已启动")
+
+    def on_stop_strategy(self):
+        row = self.monitor_table.currentRow()
+        if row >= 0:
+            self.monitor_table.item(row, 2).setText("已停止")
+            self.monitor_table.item(row, 2).setForeground(QColor("#FF5252"))
+            self.on_monitor_selected(self.monitor_table.currentItem()) # Refresh UI
+            self.strategy_details.append("\n[系统] 策略已停止")
+
+    def on_delete_strategy(self):
+        row = self.monitor_table.currentRow()
+        if row >= 0:
+            self.monitor_table.removeRow(row)
+            self.strategy_details.clear()
+            self.strategy_details.setPlaceholderText("策略已删除")
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(False)
+            self.btn_delete.setEnabled(False)
 
