@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
                              QTextEdit, QPushButton, QGroupBox, QHeaderView,
-                             QComboBox, QLabel)
+                             QComboBox, QLabel, QAbstractItemView)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
@@ -53,6 +53,7 @@ class SmartSelectionTab(QWidget):
         self.component_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.component_table.verticalHeader().setVisible(False)
         self.component_table.setAlternatingRowColors(True)
+        self.component_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         components_layout.addWidget(self.component_table)
         
         # Add sample components
