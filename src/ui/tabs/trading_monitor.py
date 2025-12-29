@@ -72,9 +72,7 @@ class TradingMonitorTab(QWidget):
         # LLM Control Bar (Model & Prompt Selector)
         control_layout = QHBoxLayout()
         self.model_selector = QComboBox()
-        # self.model_selector.addItems(["OpenAI (Default)", "Local (Ollama)"]) 
         self.prompt_selector = QComboBox()
-        self.prompt_selector.addItems(["通用助手", "短线交易员"]) 
         
         control_layout.addWidget(QLabel("模型:"))
         control_layout.addWidget(self.model_selector, 1)
@@ -198,6 +196,28 @@ class TradingMonitorTab(QWidget):
         main_splitter.setSizes([250, 450, 300])
 
         layout.addWidget(main_splitter)
+
+    def update_models(self, model_names):
+        """Update model selector options"""
+        current_text = self.model_selector.currentText()
+        self.model_selector.clear()
+        self.model_selector.addItems(model_names)
+        
+        # Restore selection if possible
+        index = self.model_selector.findText(current_text)
+        if index >= 0:
+            self.model_selector.setCurrentIndex(index)
+
+    def update_prompts(self, prompt_names):
+        """Update prompt selector options"""
+        current_text = self.prompt_selector.currentText()
+        self.prompt_selector.clear()
+        self.prompt_selector.addItems(prompt_names)
+        
+        # Restore selection if possible
+        index = self.prompt_selector.findText(current_text)
+        if index >= 0:
+            self.prompt_selector.setCurrentIndex(index)
         
         # Load sample data
         self.add_sample_data()

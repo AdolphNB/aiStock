@@ -1,0 +1,31 @@
+{
+    "llm_providers": {
+        "siliconflow": {
+            "name": "siliconflow",
+            "api_key": "sk-jbvkfahkmstgrtuytjttasivrpsruqsxfydciyvlbidpdicd",
+            "base_url": "https://api.siliconflow.cn/v1",
+            "model_name": "deepseek-ai/DeepSeek-V3.2"
+        }
+    },
+    "prompts": {
+        "通用助手": {
+            "name": "通用助手",
+            "content": "你是一个有用的助手..."
+        },
+        "短线交易员": {
+            "name": "短线交易员",
+            "content": "关注短期波动..."
+        }
+    },
+    "appearance": {
+        "theme": "Light"
+    },
+    "strategy": {
+        "refresh_rate": "30秒",
+        "ma_period": "20"
+    },
+    "notification": {
+        "feishu_webhook": "",
+        "wechat_webhook": ""
+    }
+}

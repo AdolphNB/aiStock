@@ -4,23 +4,21 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGr
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from ..theme_manager import ThemeManager
 from ..dialogs import LLMProviderDialog, PromptTemplateDialog
+try:
+    from ...utils.config_manager import ConfigManager
+except ImportError:
+    from utils.config_manager import ConfigManager
 
 class ConfigTab(QWidget):
     # Signal emitted when model list changes, passing list of model names
     modelsUpdated = pyqtSignal(list)
+    promptsUpdated = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
-        # Mock data storage (replace with proper config management later)
-        # Key: Provider Name, Value: Data
-        self.providers = {
-            "OpenAI (Default)": {"name": "OpenAI (Default)", "api_key": "sk-...", "base_url": "", "model_name": "gpt-4"},
-            "Local (Ollama)": {"name": "Local (Ollama)", "api_key": "", "base_url": "http://localhost:11434", "model_name": "llama3"}
-        }
-        self.prompts = {
-            "通用助手": {"name": "通用助手", "content": "你是一个有用的助手..."},
-            "短线交易员": {"name": "短线交易员", "content": "关注短期波动..."}
-        }
+        self.config_manager = ConfigManager()
+        self.providers = self.config_manager.get_providers()
+        self.prompts = self.config_manager.get_prompts()
         
         self.init_ui()
 
@@ -84,6 +82,7 @@ class ConfigTab(QWidget):
         self.save_btn = QPushButton("保存全部配置")
         self.save_btn.setFixedHeight(40)
         self.save_btn.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold;")
+        self.save_btn.clicked.connect(self.save_all_configs)
         right_layout.addStretch()
         right_layout.addWidget(self.save_btn)
 
@@ -92,6 +91,31 @@ class ConfigTab(QWidget):
         splitter.setSizes([400, 400])
         
         main_layout.addWidget(splitter)
+
+    def save_all_configs(self):
+        """Save all configurations from the right column"""
+        # Save Strategy
+        strategy_data = {
+            "refresh_rate": self.refresh_rate.currentText(),
+            "ma_period": self.ma_period.text()
+        }
+        self.config_manager.set_strategy(strategy_data)
+        
+        # Save Notification
+        notify_data = {
+            "feishu_webhook": self.feishu_webhook.text(),
+            "wechat_webhook": self.wechat_webhook.text()
+        }
+        self.config_manager.set_notification(notify_data)
+        
+        # Theme is already saved on change, but we can save it again to be sure or if we change logic
+        appearance_data = {
+            "theme": self.theme_selector.currentText()
+        }
+        self.config_manager.set_appearance(appearance_data)
+        
+        # Show feedback (optional, maybe status bar or just console log)
+        print("All configurations saved.")
 
     def create_list_manager_ui(self, title):
         group = QGroupBox(title)
@@ -152,6 +176,7 @@ class ConfigTab(QWidget):
             name = data['name']
             if name and name not in self.providers:
                 self.providers[name] = data
+                self.config_manager.set_providers(self.providers)
                 self.refresh_provider_list()
 
     def edit_provider(self, item):
@@ -173,6 +198,7 @@ class ConfigTab(QWidget):
             if new_name != name:
                 del self.providers[name]
             self.providers[new_name] = new_data
+            self.config_manager.set_providers(self.providers)
             self.refresh_provider_list()
 
     def del_provider(self):
@@ -182,6 +208,7 @@ class ConfigTab(QWidget):
             name = item.data(Qt.ItemDataRole.UserRole)
             if name and name in self.providers:
                 del self.providers[name]
+                self.config_manager.set_providers(self.providers)
                 self.refresh_provider_list()
 
     # --- Interaction Logic: Prompts ---
@@ -192,7 +219,9 @@ class ConfigTab(QWidget):
             name = data['name']
             if name and name not in self.prompts:
                 self.prompts[name] = data
+                self.config_manager.set_prompts(self.prompts)
                 self.prompt_list.addItem(name)
+                self.promptsUpdated.emit(list(self.prompts.keys()))
 
     def edit_prompt(self, item):
         name = item.text()
@@ -206,12 +235,16 @@ class ConfigTab(QWidget):
                 del self.prompts[name]
                 item.setText(new_name)
             self.prompts[new_name] = new_data
+            self.config_manager.set_prompts(self.prompts)
+            self.promptsUpdated.emit(list(self.prompts.keys()))
 
     def del_prompt(self):
         row = self.prompt_list.currentRow()
         if row >= 0:
             item = self.prompt_list.takeItem(row)
             del self.prompts[item.text()]
+            self.config_manager.set_prompts(self.prompts)
+            self.promptsUpdated.emit(list(self.prompts.keys()))
 
     # --- Right Column Groups ---
     def create_appearance_group(self):
@@ -220,12 +253,21 @@ class ConfigTab(QWidget):
         
         self.theme_selector = QComboBox()
         self.theme_selector.addItems(["Light", "Dark"])
+        
+        # Load saved theme
+        appearance_config = self.config_manager.get_appearance()
+        current_theme = appearance_config.get("theme", "Light")
+        self.theme_selector.setCurrentText(current_theme)
+        
         self.theme_selector.currentTextChanged.connect(self.change_theme)
         
         layout.addRow("主题风格:", self.theme_selector)
         return group
 
     def change_theme(self, theme_name):
+        # Save theme setting
+        self.config_manager.set_appearance({"theme": theme_name})
+        
         app = QApplication.instance()
         if app:
             # Delay the theme application to avoid crashing if called during signal emission
@@ -241,6 +283,11 @@ class ConfigTab(QWidget):
         
         self.ma_period = QLineEdit("20")
         
+        # Load saved strategy config
+        strategy_config = self.config_manager.get_strategy()
+        self.refresh_rate.setCurrentText(strategy_config.get("refresh_rate", "5秒"))
+        self.ma_period.setText(strategy_config.get("ma_period", "20"))
+        
         layout.addRow("数据刷新频率:", self.refresh_rate)
         layout.addRow("均线周期 (MA):", self.ma_period)
         return group
@@ -251,6 +298,11 @@ class ConfigTab(QWidget):
         
         self.feishu_webhook = QLineEdit()
         self.wechat_webhook = QLineEdit()
+        
+        # Load saved notification config
+        notify_config = self.config_manager.get_notification()
+        self.feishu_webhook.setText(notify_config.get("feishu_webhook", ""))
+        self.wechat_webhook.setText(notify_config.get("wechat_webhook", ""))
         
         test_btn_layout = QHBoxLayout()
         self.test_feishu = QPushButton("测试飞书")

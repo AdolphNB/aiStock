@@ -75,9 +75,7 @@ class SmartSelectionTab(QWidget):
         # LLM Control Bar
         control_layout = QHBoxLayout()
         self.model_selector = QComboBox()
-        # self.model_selector.addItems(["OpenAI (Default)", "Local (Ollama)"]) 
         self.prompt_selector = QComboBox()
-        self.prompt_selector.addItems(["通用助手", "选股专家"]) 
         
         control_layout.addWidget(QLabel("模型:"))
         control_layout.addWidget(self.model_selector, 1)
@@ -120,6 +118,17 @@ class SmartSelectionTab(QWidget):
         index = self.model_selector.findText(current_text)
         if index >= 0:
             self.model_selector.setCurrentIndex(index)
+
+    def update_prompts(self, prompt_names):
+        """Update prompt selector options"""
+        current_text = self.prompt_selector.currentText()
+        self.prompt_selector.clear()
+        self.prompt_selector.addItems(prompt_names)
+        
+        # Restore selection if possible
+        index = self.prompt_selector.findText(current_text)
+        if index >= 0:
+            self.prompt_selector.setCurrentIndex(index)
 
     def add_tree_item(self, parent, name, change, color_name):
         item = QTreeWidgetItem(parent, [name, change])
