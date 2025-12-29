@@ -3,13 +3,36 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                              QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle, QMessageBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
+import markdown
+try:
+    from services.llm_service import LLMService
+    from ui.utils.worker import LLMWorker
+except ImportError:
+    # Fallback for relative imports if run as package
+    from ...services.llm_service import LLMService
+    from ..utils.worker import LLMWorker
 
 class TradingMonitorTab(QWidget):
     def __init__(self):
         super().__init__()
         self.current_stock_code = None
         self.current_stock_name = None
+        self.llm_service = LLMService()
         self.init_ui()
+        self.load_initial_config()
+
+    def load_initial_config(self):
+        """Load initial models and prompts"""
+        if hasattr(self, 'llm_service') and self.llm_service:
+            # Load models
+            providers = self.llm_service.config_manager.get_providers()
+            model_names = [config.get("model_name") for config in providers.values() if config.get("model_name")]
+            self.update_models(model_names)
+            
+            # Load prompts
+            prompts = self.llm_service.config_manager.get_prompts()
+            prompt_names = list(prompts.keys())
+            self.update_prompts(prompt_names)
 
     def init_ui(self):
         layout = QHBoxLayout(self)
@@ -114,7 +137,7 @@ class TradingMonitorTab(QWidget):
 
         self.btn_accept.clicked.connect(self.on_accept_strategy)
         self.btn_reject.clicked.connect(self.on_reject_strategy)
-        # self.btn_send.clicked.connect(self.on_send_message) 
+        self.btn_send.clicked.connect(self.on_send_message)
 
         action_layout.addWidget(self.btn_send, 3)
         action_layout.addWidget(self.btn_accept, 1)
@@ -304,12 +327,120 @@ class TradingMonitorTab(QWidget):
             """)
             
             # Simulate LLM providing a strategy suggestion
-            self.chat_history.append(f"<b>[系统]</b> 已选择 {name} ({code})。正在分析...")
-            self.chat_history.append(f"<b>[LLM助手]</b> 针对 {name} 的建议策略：\n"
-                                     f"- 监控周期：30分钟\n"
-                                     f"- 建议买入：突破昨日高点\n"
-                                     f"- 建议卖出：跌破5日均线\n"
-                                     f"您可以点击“采纳”将此策略加入监控，或点击“拒绝”忽略。")
+            self.chat_history.append(f"<b>[系统]</b> 已选择 {name} ({code})。")
+            # self.chat_history.append(f"<b>[LLM助手]</b> 针对 {name} 的建议策略：\n"
+            #                          f"- 监控周期：30分钟\n"
+            #                          f"- 建议买入：突破昨日高点\n"
+            #                          f"- 建议卖出：跌破5日均线\n"
+            #                          f"您可以点击“采纳”将此策略加入监控，或点击“拒绝”忽略。")
+
+    def on_send_message(self):
+        user_input = self.chat_input.toPlainText().strip()
+        if not user_input:
+            return
+            
+        context = f"[当前分析股票: {self.current_stock_name} ({self.current_stock_code})]\n" if self.current_stock_code else ""
+        full_input = context + user_input
+        
+        # Display user message
+        self.chat_history.append(f"<b>[用户]</b> {user_input}")
+        self.chat_input.clear()
+        
+        # Get selected options
+        model_name = self.model_selector.currentText()
+        prompt_name = self.prompt_selector.currentText()
+        
+        if not model_name:
+            self.chat_history.append(f"<span style='color: red;'><b>[系统]</b> 请先选择一个模型。</span>")
+            return
+
+        # Create and start worker
+        self.btn_send.setEnabled(False)
+        self.chat_history.append(f"<b>[系统]</b> 正在思考 ({model_name})...")
+        
+        # Prepare for streaming
+        self.current_stream_response = ""
+        self.chat_history.append("<b>[LLM助手]</b> ") # Start a new line for the assistant
+        
+        try:
+            self.worker = LLMWorker(self.llm_service, full_input, model_name, prompt_name)
+            self.worker.stream_updated.connect(self.on_llm_stream)
+            self.worker.finished.connect(self.on_llm_response)
+            self.worker.start()
+        except Exception as e:
+            self.btn_send.setEnabled(True)
+            self.chat_history.append(f"<span style='color: red;'><b>[系统错误]</b> 启动 LLM 线程失败: {str(e)}</span>")
+            QMessageBox.critical(self, "系统错误", f"无法启动 LLM 任务:\n{str(e)}")
+
+    def on_llm_stream(self, chunk):
+        """Handle streaming chunk"""
+        self.current_stream_response += chunk
+        # Move cursor to end and insert plain text
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.chat_history.setTextCursor(cursor)
+        self.chat_history.insertPlainText(chunk)
+        # Scroll to bottom
+        scrollbar = self.chat_history.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def on_llm_response(self, response):
+        """Handle response from LLM Worker"""
+        # Check for error prefix from LLMService or Worker
+        if response.startswith("Error:") or response.startswith("System Error:"):
+             # Undo the streaming part if it was an error message
+             cursor = self.chat_history.textCursor()
+             cursor.movePosition(cursor.MoveOperation.End)
+             # This is tricky to undo perfectly, so we just append the error
+             self.chat_history.append(f"<span style='color: red;'><b>[错误]</b> {response}</span>")
+        else:
+             # Streaming finished. Replace the raw text with Markdown rendered HTML.
+             # We need to remove the last "raw" paragraph and replace it with HTML
+             
+             # For simplicity in this iteration:
+             # We just re-render the whole block. 
+             # Since we appended "<b>[LLM助手]</b> " and then streamed text, 
+             # we can just append a newline to ensure separation or rely on the previous flow.
+             
+             # Better approach for "Markdown replace":
+             # 1. Remove the raw text added during streaming (tricky with QTextEdit)
+             # 2. Or, just let the raw text be, and *then* say "Rendering..." (bad UX)
+             # 3. Or, since we want the final result to be Markdown, we can try to "reload" the last message.
+             
+             # Current compromise: 
+             # During stream: User sees raw text (which might look like Markdown source).
+             # On finish: We replace the last part with rendered HTML.
+             
+             try:
+                 html_response = markdown.markdown(response)
+                 
+                 # Remove the raw text response we just streamed.
+                 # This is a bit hacky in QTextEdit without a custom document structure.
+                 # Alternative: Just clear and re-append the last message properly formatted.
+                 
+                 # Let's try to delete the raw text length from the end.
+                 cursor = self.chat_history.textCursor()
+                 cursor.movePosition(cursor.MoveOperation.End)
+                 
+                 # Select back the length of the response
+                 # Note: This might be inaccurate if rich text formatting added hidden chars, 
+                 # but we insertedPlainText, so it should be close.
+                 cursor.movePosition(cursor.MoveOperation.Left, cursor.MoveMode.KeepAnchor, len(response))
+                 cursor.removeSelectedText()
+                 
+                 # Now append the HTML version
+                 # We are still on the same line after "<b>[LLM助手]</b> " theoretically, 
+                 # but append adds a new block.
+                 
+                 # Let's just use insertHtml
+                 cursor.insertHtml(html_response)
+                 self.chat_history.append("") # Add spacing
+                 
+             except Exception as e:
+                 # Fallback
+                 pass # The raw text is already there
+        
+        self.btn_send.setEnabled(True)
 
     def on_accept_strategy(self):
         """Accept current LLM strategy suggestion"""
