@@ -362,6 +362,11 @@ class TradingMonitorTab(QWidget):
         self.current_stream_response = ""
         self.chat_history.append("<b>[LLM助手]</b> ") # Start a new line for the assistant
         
+        # Capture the start position for streaming updates
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.response_start_position = cursor.position()
+        
         try:
             self.worker = LLMWorker(self.llm_service, full_input, model_name, prompt_name)
             self.worker.stream_updated.connect(self.on_llm_stream)
@@ -373,13 +378,25 @@ class TradingMonitorTab(QWidget):
             QMessageBox.critical(self, "系统错误", f"无法启动 LLM 任务:\n{str(e)}")
 
     def on_llm_stream(self, chunk):
-        """Handle streaming chunk"""
+        """Handle streaming chunk with incremental Markdown rendering"""
         self.current_stream_response += chunk
-        # Move cursor to end and insert plain text
+        
+        # Render current accumulated text to HTML
+        try:
+            html_response = markdown.markdown(self.current_stream_response)
+        except Exception:
+            # Fallback to raw text if markdown fails
+            html_response = self.current_stream_response
+
+        # Update the text area
         cursor = self.chat_history.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self.chat_history.setTextCursor(cursor)
-        self.chat_history.insertPlainText(chunk)
+        cursor.setPosition(self.response_start_position)
+        cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+        
+        # Replace the current content with the new rendered HTML
+        # insertHtml will replace the selected text
+        cursor.insertHtml(html_response)
+        
         # Scroll to bottom
         scrollbar = self.chat_history.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
@@ -388,57 +405,12 @@ class TradingMonitorTab(QWidget):
         """Handle response from LLM Worker"""
         # Check for error prefix from LLMService or Worker
         if response.startswith("Error:") or response.startswith("System Error:"):
-             # Undo the streaming part if it was an error message
              cursor = self.chat_history.textCursor()
              cursor.movePosition(cursor.MoveOperation.End)
-             # This is tricky to undo perfectly, so we just append the error
              self.chat_history.append(f"<span style='color: red;'><b>[错误]</b> {response}</span>")
-        else:
-             # Streaming finished. Replace the raw text with Markdown rendered HTML.
-             # We need to remove the last "raw" paragraph and replace it with HTML
-             
-             # For simplicity in this iteration:
-             # We just re-render the whole block. 
-             # Since we appended "<b>[LLM助手]</b> " and then streamed text, 
-             # we can just append a newline to ensure separation or rely on the previous flow.
-             
-             # Better approach for "Markdown replace":
-             # 1. Remove the raw text added during streaming (tricky with QTextEdit)
-             # 2. Or, just let the raw text be, and *then* say "Rendering..." (bad UX)
-             # 3. Or, since we want the final result to be Markdown, we can try to "reload" the last message.
-             
-             # Current compromise: 
-             # During stream: User sees raw text (which might look like Markdown source).
-             # On finish: We replace the last part with rendered HTML.
-             
-             try:
-                 html_response = markdown.markdown(response)
-                 
-                 # Remove the raw text response we just streamed.
-                 # This is a bit hacky in QTextEdit without a custom document structure.
-                 # Alternative: Just clear and re-append the last message properly formatted.
-                 
-                 # Let's try to delete the raw text length from the end.
-                 cursor = self.chat_history.textCursor()
-                 cursor.movePosition(cursor.MoveOperation.End)
-                 
-                 # Select back the length of the response
-                 # Note: This might be inaccurate if rich text formatting added hidden chars, 
-                 # but we insertedPlainText, so it should be close.
-                 cursor.movePosition(cursor.MoveOperation.Left, cursor.MoveMode.KeepAnchor, len(response))
-                 cursor.removeSelectedText()
-                 
-                 # Now append the HTML version
-                 # We are still on the same line after "<b>[LLM助手]</b> " theoretically, 
-                 # but append adds a new block.
-                 
-                 # Let's just use insertHtml
-                 cursor.insertHtml(html_response)
-                 self.chat_history.append("") # Add spacing
-                 
-             except Exception as e:
-                 # Fallback
-                 pass # The raw text is already there
+        
+        # If not an error, the streaming handler has already rendered the final markdown.
+        # We don't need to do anything else for the content.
         
         self.btn_send.setEnabled(True)
 

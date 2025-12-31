@@ -180,6 +180,11 @@ class SmartSelectionTab(QWidget):
         self.current_stream_response = ""
         self.chat_history.append("<b>[LLM助手]</b> ") # Start a new line
         
+        # Capture the start position for streaming updates
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.response_start_position = cursor.position()
+        
         # Create and start worker
         try:
             self.worker = LLMWorker(self.llm_service, user_input, model_name, prompt_name)
@@ -191,13 +196,24 @@ class SmartSelectionTab(QWidget):
             self.chat_history.append(f"<span style='color: red;'><b>[系统错误]</b> 启动 LLM 线程失败: {str(e)}</span>")
 
     def on_llm_stream(self, chunk):
-        """Handle streaming chunk"""
+        """Handle streaming chunk with incremental Markdown rendering"""
         self.current_stream_response += chunk
-        # Move cursor to end and insert plain text
+        
+        # Render current accumulated text to HTML
+        try:
+            html_response = markdown.markdown(self.current_stream_response)
+        except Exception:
+            # Fallback to raw text if markdown fails
+            html_response = self.current_stream_response
+
+        # Update the text area
         cursor = self.chat_history.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self.chat_history.setTextCursor(cursor)
-        self.chat_history.insertPlainText(chunk)
+        cursor.setPosition(self.response_start_position)
+        cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+        
+        # Replace the current content with the new rendered HTML
+        cursor.insertHtml(html_response)
+        
         # Scroll to bottom
         scrollbar = self.chat_history.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
@@ -205,26 +221,11 @@ class SmartSelectionTab(QWidget):
     def on_llm_response(self, response):
         """Handle response from LLM Worker"""
         if response.startswith("Error:") or response.startswith("System Error:"):
+             cursor = self.chat_history.textCursor()
+             cursor.movePosition(cursor.MoveOperation.End)
              self.chat_history.append(f"<span style='color: red;'><b>[错误]</b> {response}</span>")
-        else:
-             try:
-                 html_response = markdown.markdown(response)
-                 
-                 # Remove the raw text response we just streamed.
-                 cursor = self.chat_history.textCursor()
-                 cursor.movePosition(cursor.MoveOperation.End)
-                 
-                 # Select back the length of the response
-                 cursor.movePosition(cursor.MoveOperation.Left, cursor.MoveMode.KeepAnchor, len(response))
-                 cursor.removeSelectedText()
-                 
-                 # Now append the HTML version
-                 cursor.insertHtml(html_response)
-                 self.chat_history.append("") # Add spacing
-                 
-             except Exception as e:
-                 # Fallback
-                 pass
+        
+        # If not an error, the streaming handler has already rendered the final markdown.
         self.btn_send.setEnabled(True)
 
     def add_tree_item(self, parent, name, change, color_name):
