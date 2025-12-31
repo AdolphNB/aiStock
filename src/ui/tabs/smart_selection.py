@@ -118,10 +118,19 @@ class SmartSelectionTab(QWidget):
         self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_send.clicked.connect(self.on_send_message)
         
+        self.btn_clear = QPushButton("清空")
+        self.btn_clear.setFixedHeight(35)
+        self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear.clicked.connect(self.on_clear_chat)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.btn_send, 3)
+        btn_layout.addWidget(self.btn_clear, 1)
+
         chat_layout.addLayout(control_layout)
         chat_layout.addWidget(self.chat_history)
         chat_layout.addWidget(self.chat_input)
-        chat_layout.addWidget(self.btn_send)
+        chat_layout.addLayout(btn_layout)
         
         right_layout.addWidget(chat_group)
 
@@ -227,6 +236,10 @@ class SmartSelectionTab(QWidget):
         
         # If not an error, the streaming handler has already rendered the final markdown.
         self.btn_send.setEnabled(True)
+
+    def on_clear_chat(self):
+        """Clear chat history"""
+        self.chat_history.clear()
 
     def add_tree_item(self, parent, name, change, color_name):
         item = QTreeWidgetItem(parent, [name, change])

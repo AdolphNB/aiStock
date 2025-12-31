@@ -135,13 +135,20 @@ class TradingMonitorTab(QWidget):
         self.btn_reject.setStyleSheet("background-color: #f44336; color: white; font-weight: bold;")
         self.btn_reject.setToolTip("拒绝当前策略建议")
 
+        self.btn_clear = QPushButton("清空")
+        self.btn_clear.setFixedHeight(35)
+        self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear.setToolTip("清空对话历史")
+
         self.btn_accept.clicked.connect(self.on_accept_strategy)
         self.btn_reject.clicked.connect(self.on_reject_strategy)
         self.btn_send.clicked.connect(self.on_send_message)
+        self.btn_clear.clicked.connect(self.on_clear_chat)
 
         action_layout.addWidget(self.btn_send, 3)
         action_layout.addWidget(self.btn_accept, 1)
         action_layout.addWidget(self.btn_reject, 1)
+        action_layout.addWidget(self.btn_clear, 1)
         
         chat_layout.addLayout(control_layout)
         chat_layout.addWidget(self.chat_history)
@@ -467,6 +474,10 @@ class TradingMonitorTab(QWidget):
              
         self.chat_history.append(f"<span style='color: red;'><b>[系统]</b> 已拒绝 {self.current_stock_name} 的策略建议。</span>")
         # Optionally clear selection or just log it
+
+    def on_clear_chat(self):
+        """Clear chat history"""
+        self.chat_history.clear()
 
 
     def on_monitor_selected(self, item):
