@@ -152,6 +152,7 @@ class TradingMonitorTab(QWidget):
 
         # --- Right Area: Monitor & Logs ---
         right_widget = QWidget()
+        right_widget.setMinimumWidth(50)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -160,6 +161,7 @@ class TradingMonitorTab(QWidget):
         
         # 1. Top: Strategy Preview
         preview_group = QGroupBox("策略预览")
+        preview_group.setMinimumWidth(50)
         preview_layout = QVBoxLayout(preview_group)
         
         self.strategy_details = QTextEdit()
@@ -191,6 +193,7 @@ class TradingMonitorTab(QWidget):
         
         # 2. Bottom: Monitored Stocks List
         list_group = QGroupBox("监控列表")
+        list_group.setMinimumWidth(50)
         list_layout = QVBoxLayout(list_group)
         
         self.monitor_table = QTableWidget(0, 3)
@@ -215,8 +218,7 @@ class TradingMonitorTab(QWidget):
         main_splitter.addWidget(middle_widget)
         main_splitter.addWidget(right_widget)
         
-        # Set initial sizes (approx 25%, 45%, 30%)
-        main_splitter.setSizes([250, 450, 300])
+        main_splitter.setSizes([250, 600, 250])
 
         layout.addWidget(main_splitter)
 
