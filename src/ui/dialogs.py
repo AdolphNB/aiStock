@@ -47,6 +47,7 @@ class PromptTemplateDialog(BaseDialog):
     def __init__(self, parent=None, data=None):
         super().__init__(parent, "编辑提示词模板" if data else "新增提示词模板")
         self.data = data or {}
+        self.resize(800, 600)
         
         self.name_input = QLineEdit(self.data.get("name", ""))
         self.content_input = QTextEdit(self.data.get("content", ""))
