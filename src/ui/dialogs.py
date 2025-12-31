@@ -50,7 +50,8 @@ class PromptTemplateDialog(BaseDialog):
         self.resize(800, 600)
         
         self.name_input = QLineEdit(self.data.get("name", ""))
-        self.content_input = QTextEdit(self.data.get("content", ""))
+        self.content_input = QTextEdit()
+        self.content_input.setPlainText(self.data.get("content", ""))
         
         self.add_input("模板名称:", self.name_input)
         self.layout.addWidget(QLabel("提示词内容:"))
