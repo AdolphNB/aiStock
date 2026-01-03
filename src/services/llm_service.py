@@ -1,6 +1,7 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import HumanMessage, AIMessage
 import os
 
 # Try to import ConfigManager
@@ -21,6 +22,11 @@ except ImportError:
 class LLMService:
     def __init__(self):
         self.config_manager = ConfigManager()
+        self.chat_history = []
+
+    def clear_history(self):
+        """Clear the chat history."""
+        self.chat_history = []
 
     def get_provider_config(self, model_name_selection):
         """
@@ -84,14 +90,21 @@ class LLMService:
             # 4. Create Chain
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
+                MessagesPlaceholder(variable_name="history"),
                 ("user", "{input}")
             ])
             
             chain = prompt | llm | StrOutputParser()
             
             # 5. Stream
-            for chunk in chain.stream({"input": user_input}):
+            full_response = ""
+            for chunk in chain.stream({"input": user_input, "history": self.chat_history}):
+                full_response += chunk
                 yield chunk
+            
+            # 6. Update History
+            self.chat_history.append(HumanMessage(content=user_input))
+            self.chat_history.append(AIMessage(content=full_response))
             
         except Exception as e:
             yield f"Error calling LLM: {str(e)}"

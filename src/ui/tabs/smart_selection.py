@@ -240,6 +240,8 @@ class SmartSelectionTab(QWidget):
     def on_clear_chat(self):
         """Clear chat history"""
         self.chat_history.clear()
+        if hasattr(self, 'llm_service'):
+            self.llm_service.clear_history()
 
     def add_tree_item(self, parent, name, change, color_name):
         item = QTreeWidgetItem(parent, [name, change])
