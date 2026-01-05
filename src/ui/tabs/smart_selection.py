@@ -51,6 +51,9 @@ class SmartSelectionTab(QWidget):
         col1_layout = QVBoxLayout(col1_widget)
         col1_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Create Vertical Splitter for Column 1
+        col1_splitter = QSplitter(Qt.Orientation.Vertical)
+
         # Filter Controls Group
         filter_group = QGroupBox("初选条件")
         filter_layout = QVBoxLayout(filter_group)
@@ -74,12 +77,15 @@ class SmartSelectionTab(QWidget):
         self.chk_ma_bullish.setChecked(True)
         filter_layout.addWidget(self.chk_ma_bullish)
         
+        # Add stretch to push button to bottom
+        filter_layout.addStretch()
+        
         # Start Button
         self.btn_start_filter = QPushButton("开始初选")
         self.btn_start_filter.clicked.connect(self.on_start_filter)
         filter_layout.addWidget(self.btn_start_filter)
         
-        col1_layout.addWidget(filter_group)
+        col1_splitter.addWidget(filter_group)
         
         # Primary Result Table
         self.primary_table = QTableWidget(0, 4)
@@ -89,7 +95,14 @@ class SmartSelectionTab(QWidget):
         self.primary_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.primary_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.primary_table.itemClicked.connect(self.on_primary_item_clicked)
-        col1_layout.addWidget(self.primary_table)
+        
+        col1_splitter.addWidget(self.primary_table)
+        
+        # Set initial sizes for splitter (50/50 roughly)
+        col1_splitter.setStretchFactor(0, 1)
+        col1_splitter.setStretchFactor(1, 1)
+        
+        col1_layout.addWidget(col1_splitter)
         
         # --- Column 2: LLM Assistant ---
         col2_widget = QWidget()
