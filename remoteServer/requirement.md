@@ -1,15 +1,108 @@
-我要在服务器中搭建了一个 server，定时会去获取一些股票异动和资金流动信息。这个 server 的代码是一个独立的工程放在 remoteServer 文件夹中。
+# AIStock Remote Server Requirements & Technical Specification
 
-这个 server 运行在 ubuntu 服务器上，然后通过http://www.mcptools.xin访问。
-这个 server 提供以下功能：
+## 1. Project Overview
 
-1. 运行 server 后，一个进程（或线程）会定时的获取股票异动、获取资金流动等信息，主要是在交易日的 9:30-11:30 和 13:00-15:00 之间获取信息。其它时间不获取信息。获取的这些信息存储在内存中，client 请求数据时，再具体从内存中读取信息分发给请求的 client.
-2. 提供一个接口可以让 client 订阅这些信息。当前项目的配置选项卡下，可以提供订阅按键（点订阅会弹窗，出现微信二维码付款。）付款（有 1 月、3 月、6 月、12 月）完成后，将订阅信息保存到数据库中，也会生成一个 token, 这个 token 用来标识订阅信息给到 PC client。
-3. 这个 server 提供一个接口，PC client 可以通过这个接口获取订阅信息。可供 20 个用户同时访问，因此要考虑负载均衡。
-4. 我还需要建立一个后台管理界面，可以管理订阅信息，包括查看订阅信息、修改订阅信息、删除订阅信息等。可以通过www.mcptools.xin/admin访问。
+Build a remote server on Ubuntu to act as a centralized data hub and subscription management system for the AIStock PC Client.
+**Domain**: `http://www.mcptools.xin`
+**Admin**: `http://www.mcptools.xin/admin`
 
-定时获取股票异动和资金流动信息，暂时只提供一个接口， 但是这个要是一个获立的文件，方便我日后扩展其它接口：
-赚钱效应分析
-import akshare as ak
-stock_market_activity_legu_df = ak.stock_market_activity_legu()
-print(stock_market_activity_legu_df)
+## 2. Technical Architecture
+
+### 2.1 Technology Stack
+
+- **Language**: Python 3.10+
+- **Web Framework**: FastAPI (High performance, async support)
+- **Data Source**: `akshare` (Stock data)
+- **Task Scheduler**: `APScheduler` (Async scheduling for trading hours)
+- **Database**: SQLite (MVP) / PostgreSQL (Production) - using `SQLAlchemy` ORM.
+- **Cache**: In-Memory (Global Python Dictionary or `cachetools`) for real-time stock data.
+- **Server**: Uvicorn / Gunicorn
+- **Deployment**: Docker Compose
+
+### 2.2 System Modules
+
+#### A. Data Fetcher Module (Background Service)
+
+- **Responsibility**: Fetch stock market activity and money flow data.
+- **Schedule**:
+  - Trading Days Only (Monday-Friday, excluding holidays - need a holiday calendar logic).
+  - Time Windows: 09:30-11:30, 13:00-15:00.
+  - Interval: Configurable (e.g., every 60 seconds).
+- **Storage**:
+  - Store latest data in **RAM** (In-Memory) for O(1) access.
+  - Optional: Persist history to DB for analysis (if needed later).
+- **Target Data**:
+  - `ak.stock_market_activity_legu()` (赚钱效应)
+  - Other money flow interfaces as needed.
+
+#### B. Subscription & Payment Module
+
+- **Plans**: 1 Month, 3 Months, 6 Months, 12 Months.
+- **Workflow**:
+  1. Client requests subscription -> Server generates Order ID.
+  2. Client shows Payment QR (Mock or Integration? _Assumed Mock/Manual verification for now based on "popup QR code" description_).
+  3. Payment Confirmed -> Server updates DB, generates **Auth Token**.
+  4. Token is sent to Client.
+- **Token**: Long-lived API Key or JWT. Used for verifying client data requests.
+
+#### C. API Service (REST Client Interface)
+
+- **Auth**: Bearer Token or Query Param `?token=...`.
+- **Concurrency**: Asyncio based to support 20+ concurrent users easily.
+- **Endpoints**:
+  - `POST /api/v1/subscribe`: Create subscription order.
+  - `GET /api/v1/data/market-activity`: Get in-memory cached market data (Requires Token).
+  - `GET /api/v1/status`: Server health check.
+
+#### D. Admin Dashboard
+
+- **Access**: Web Browser (`/admin`).
+- **Auth**: Basic Auth or dedicated Admin Login.
+- **Features**:
+  - View all subscriptions.
+  - Add/Modify/Delete subscriptions (Manual activation support).
+  - View Server Status (Memory cache status).
+
+## 3. Data Models (Draft)
+
+### User / Subscription
+
+```python
+class Subscription(Base):
+    id = Column(Integer, primary_key=True)
+    machine_id = Column(String, index=True) # ID of the PC Client
+    token = Column(String, unique=True)
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    plan_type = Column(String) # "1m", "3m", "6m", "12m"
+    is_active = Column(Boolean, default=True)
+```
+
+## 4. Interfaces & Implementation Details
+
+### 4.1 Data Interface Example
+
+```python
+# GET /api/v1/data/market-activity
+# Header: Authorization: Bearer <TOKEN>
+{
+    "timestamp": "2026-01-07 14:30:00",
+    "data": {
+        "stats": [...], # from akshare
+        "limit_up_count": 50,
+        "limit_down_count": 2
+    }
+}
+```
+
+### 4.2 Load Balancing
+
+- For 20 users, a single FastAPI process is sufficient.
+- For 1000+ users, use Nginx Load Balancer upstream to multiple Docker containers.
+- **Requirement**: Design "Stateless" API where possible. Data Fetcher should be a singleton or use a shared Redis cache if scaled (currently RAM is fine for single node).
+
+## 5. Next Steps
+
+1. Setup RemoteServer project in `d:\mcpServer\aiStock\remoteServer`.
+2. Implement Data Fetcher with `akshare`.
+3. Implement FastAPI skeleton.
