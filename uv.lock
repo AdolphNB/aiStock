@@ -17,6 +17,8 @@ dependencies = [
     { name = "langchain-community" },
     { name = "langchain-openai" },
     { name = "markdown" },
+    { name = "numpy" },
+    { name = "pandas" },
     { name = "pyqt6" },
     { name = "python-dotenv" },
 ]
@@ -28,6 +30,8 @@ requires-dist = [
     { name = "langchain-community", specifier = ">=0.4.1" },
     { name = "langchain-openai", specifier = ">=1.1.6" },
     { name = "markdown", specifier = ">=3.10" },
+    { name = "numpy", specifier = ">=2.4.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
     { name = "pyqt6", specifier = ">=6.6.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]

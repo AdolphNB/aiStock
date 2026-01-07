@@ -10,6 +10,8 @@ dependencies = [
     "langchain-community>=0.4.1",
     "langchain-openai>=1.1.6",
     "markdown>=3.10",
+    "numpy>=2.4.0",
+    "pandas>=2.3.3",
     "PyQt6>=6.6.0",
     "python-dotenv>=1.2.1",
 ]
