@@ -7,6 +7,12 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[manifest]
+members = [
+    "ai-stock-monitor",
+    "remoteserver",
+]
+
 [[package]]
 name = "ai-stock-monitor"
 version = "0.1.0"
@@ -2008,6 +2014,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/cd/867f5ec442d56beb56f5f854f40abcfc75e11d10b11fdb1869dd39c63aaf/regex-2025.11.3-cp314-cp314t-win_amd64.whl", hash = "sha256:adad1a1bcf1c9e76346e091d22d23ac54ef28e1365117d99521631078dfec9de", size = 284286, upload-time = "2025-11-03T21:33:43.324Z" },
     { url = "https://files.pythonhosted.org/packages/20/31/32c0c4610cbc070362bf1d2e4ea86d1ea29014d400a6d6c2486fcfd57766/regex-2025.11.3-cp314-cp314t-win_arm64.whl", hash = "sha256:c54f768482cef41e219720013cd05933b6f971d9562544d691c68699bf2b6801", size = 274741, upload-time = "2025-11-03T21:33:45.557Z" },
 ]
+
+[[package]]
+name = "remoteserver"
+version = "0.1.0"
+source = { virtual = "remoteServer" }
 
 [[package]]
 name = "requests"
