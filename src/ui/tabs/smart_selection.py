@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QTableWidget, QTableWidgetItem, QTextEdit, QPushButton, 
                              QGroupBox, QHeaderView, QComboBox, QLabel, QDoubleSpinBox, 
-                             QCheckBox, QAbstractItemView, QMessageBox)
+                             QCheckBox, QAbstractItemView, QMessageBox, QTabWidget,
+                             QScrollArea, QSpinBox)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont
 import markdown
@@ -24,6 +25,9 @@ class SmartSelectionTab(QWidget):
         self.init_ui()
         self.load_initial_config()
         self.ai_analysis_queue = [] # Queue for auto-analysis
+        
+        # Load all stocks on initialization
+        self.load_all_stocks()
 
     def load_initial_config(self):
         """Load initial models and prompts"""
@@ -58,9 +62,23 @@ class SmartSelectionTab(QWidget):
         filter_group = QGroupBox("初选条件")
         filter_layout = QVBoxLayout(filter_group)
         
+        # Create tab widget for short-term and mid-term filters
+        filter_tabs = QTabWidget()
+        
+        # === Short-term Trading Filters ===
+        short_term_widget = QWidget()
+        short_term_layout = QVBoxLayout(short_term_widget)
+        
+        # Create scroll area for short-term filters
+        short_scroll = QScrollArea()
+        short_scroll.setWidgetResizable(True)
+        short_scroll_widget = QWidget()
+        short_scroll_layout = QVBoxLayout(short_scroll_widget)
+        
         # Turnover Rate
         turnover_layout = QHBoxLayout()
-        turnover_layout.addWidget(QLabel("换手率(%):"))
+        self.chk_turnover = QCheckBox("换手率(%):")
+        turnover_layout.addWidget(self.chk_turnover)
         self.spin_turnover_min = QDoubleSpinBox()
         self.spin_turnover_min.setRange(0, 100)
         self.spin_turnover_min.setValue(3.0)
@@ -70,20 +88,118 @@ class SmartSelectionTab(QWidget):
         turnover_layout.addWidget(self.spin_turnover_min)
         turnover_layout.addWidget(QLabel("-"))
         turnover_layout.addWidget(self.spin_turnover_max)
-        filter_layout.addLayout(turnover_layout)
+        turnover_layout.addStretch()
+        short_scroll_layout.addLayout(turnover_layout)
+        
+        # Price Change Range
+        change_layout = QHBoxLayout()
+        self.chk_change = QCheckBox("涨跌幅(%):")
+        change_layout.addWidget(self.chk_change)
+        self.spin_change_min = QDoubleSpinBox()
+        self.spin_change_min.setRange(-100, 100)
+        self.spin_change_min.setValue(-5.0)
+        self.spin_change_max = QDoubleSpinBox()
+        self.spin_change_max.setRange(-100, 100)
+        self.spin_change_max.setValue(10.0)
+        change_layout.addWidget(self.spin_change_min)
+        change_layout.addWidget(QLabel("-"))
+        change_layout.addWidget(self.spin_change_max)
+        change_layout.addStretch()
+        short_scroll_layout.addLayout(change_layout)
+        
+        # Volume Ratio
+        volume_layout = QHBoxLayout()
+        self.chk_volume_ratio = QCheckBox("量比 ≥")
+        volume_layout.addWidget(self.chk_volume_ratio)
+        self.spin_volume_ratio = QDoubleSpinBox()
+        self.spin_volume_ratio.setRange(0, 10)
+        self.spin_volume_ratio.setValue(1.5)
+        self.spin_volume_ratio.setSingleStep(0.1)
+        volume_layout.addWidget(self.spin_volume_ratio)
+        volume_layout.addStretch()
+        short_scroll_layout.addLayout(volume_layout)
+        
+        # KDJ Indicators
+        short_scroll_layout.addWidget(QLabel("<b>KDJ指标:</b>"))
+        self.chk_kdj_golden = QCheckBox("KDJ金叉 (K>D, 低位)")
+        short_scroll_layout.addWidget(self.chk_kdj_golden)
+        self.chk_kdj_death = QCheckBox("KDJ死叉 (K<D, 高位)")
+        short_scroll_layout.addWidget(self.chk_kdj_death)
+        self.chk_kdj_low = QCheckBox("KDJ低位区 (K<20)")
+        short_scroll_layout.addWidget(self.chk_kdj_low)
+        self.chk_kdj_high = QCheckBox("KDJ高位区 (K>80)")
+        short_scroll_layout.addWidget(self.chk_kdj_high)
+        
+        # MACD Indicators
+        short_scroll_layout.addWidget(QLabel("<b>MACD指标:</b>"))
+        self.chk_macd_golden = QCheckBox("MACD金叉 (DIF>DEA)")
+        short_scroll_layout.addWidget(self.chk_macd_golden)
+        self.chk_macd_death = QCheckBox("MACD死叉 (DIF<DEA)")
+        short_scroll_layout.addWidget(self.chk_macd_death)
+        self.chk_macd_above_zero = QCheckBox("MACD>0 (多头市场)")
+        short_scroll_layout.addWidget(self.chk_macd_above_zero)
+        
+        # RSI Indicators
+        short_scroll_layout.addWidget(QLabel("<b>RSI指标:</b>"))
+        self.chk_rsi_oversold = QCheckBox("RSI超卖 (<30)")
+        short_scroll_layout.addWidget(self.chk_rsi_oversold)
+        self.chk_rsi_overbought = QCheckBox("RSI超买 (>70)")
+        short_scroll_layout.addWidget(self.chk_rsi_overbought)
+        
+        short_scroll_layout.addStretch()
+        short_scroll_widget.setLayout(short_scroll_layout)
+        short_scroll.setWidget(short_scroll_widget)
+        short_term_layout.addWidget(short_scroll)
+        
+        # === Mid-term Trading Filters ===
+        mid_term_widget = QWidget()
+        mid_term_layout = QVBoxLayout(mid_term_widget)
+        
+        # Create scroll area for mid-term filters
+        mid_scroll = QScrollArea()
+        mid_scroll.setWidgetResizable(True)
+        mid_scroll_widget = QWidget()
+        mid_scroll_layout = QVBoxLayout(mid_scroll_widget)
         
         # MA Bullish
-        self.chk_ma_bullish = QCheckBox("均线多头排列 (5,10,20,60)")
-        self.chk_ma_bullish.setChecked(True)
-        filter_layout.addWidget(self.chk_ma_bullish)
+        self.chk_ma_bullish = QCheckBox("均线多头排列 (5<10<20<60)")
+        mid_scroll_layout.addWidget(self.chk_ma_bullish)
         
-        # Add stretch to push button to bottom
-        filter_layout.addStretch()
+        # Price vs MA
+        mid_scroll_layout.addWidget(QLabel("<b>价格位置:</b>"))
+        self.chk_price_above_ma20 = QCheckBox("价格站上MA20")
+        mid_scroll_layout.addWidget(self.chk_price_above_ma20)
+        self.chk_price_above_ma60 = QCheckBox("价格站上MA60")
+        mid_scroll_layout.addWidget(self.chk_price_above_ma60)
         
-        # Start Button
-        self.btn_start_filter = QPushButton("开始初选")
+        # Bollinger Bands
+        mid_scroll_layout.addWidget(QLabel("<b>布林带:</b>"))
+        self.chk_boll_lower = QCheckBox("突破下轨 (超跌反弹)")
+        mid_scroll_layout.addWidget(self.chk_boll_lower)
+        self.chk_boll_upper = QCheckBox("突破上轨 (强势突破)")
+        mid_scroll_layout.addWidget(self.chk_boll_upper)
+        
+        mid_scroll_layout.addStretch()
+        mid_scroll_widget.setLayout(mid_scroll_layout)
+        mid_scroll.setWidget(mid_scroll_widget)
+        mid_term_layout.addWidget(mid_scroll)
+        
+        # Add tabs
+        filter_tabs.addTab(short_term_widget, "短线")
+        filter_tabs.addTab(mid_term_widget, "中线")
+        
+        filter_layout.addWidget(filter_tabs)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_reset_filter = QPushButton("重置")
+        self.btn_reset_filter.clicked.connect(self.on_reset_filter)
+        self.btn_start_filter = QPushButton("开始筛选")
         self.btn_start_filter.clicked.connect(self.on_start_filter)
-        filter_layout.addWidget(self.btn_start_filter)
+        self.btn_start_filter.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        btn_layout.addWidget(self.btn_reset_filter)
+        btn_layout.addWidget(self.btn_start_filter)
+        filter_layout.addLayout(btn_layout)
         
         col1_splitter.addWidget(filter_group)
         
@@ -223,30 +339,139 @@ class SmartSelectionTab(QWidget):
             idx = self.prompt_selector.findText(current)
             if idx >= 0: self.prompt_selector.setCurrentIndex(idx)
 
+    def load_all_stocks(self):
+        """Load all stocks when tab is first opened"""
+        try:
+            all_stocks = self.data_service.get_all_stocks()
+            self.populate_table(all_stocks)
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载股票列表失败: {str(e)}")
+    
+    def on_reset_filter(self):
+        """Reset all filters and reload all stocks"""
+        # Reset short-term filters
+        self.chk_turnover.setChecked(False)
+        self.spin_turnover_min.setValue(3.0)
+        self.spin_turnover_max.setValue(15.0)
+        
+        self.chk_change.setChecked(False)
+        self.spin_change_min.setValue(-5.0)
+        self.spin_change_max.setValue(10.0)
+        
+        self.chk_volume_ratio.setChecked(False)
+        self.spin_volume_ratio.setValue(1.5)
+        
+        self.chk_kdj_golden.setChecked(False)
+        self.chk_kdj_death.setChecked(False)
+        self.chk_kdj_low.setChecked(False)
+        self.chk_kdj_high.setChecked(False)
+        
+        self.chk_macd_golden.setChecked(False)
+        self.chk_macd_death.setChecked(False)
+        self.chk_macd_above_zero.setChecked(False)
+        
+        self.chk_rsi_oversold.setChecked(False)
+        self.chk_rsi_overbought.setChecked(False)
+        
+        # Reset mid-term filters
+        self.chk_ma_bullish.setChecked(False)
+        self.chk_price_above_ma20.setChecked(False)
+        self.chk_price_above_ma60.setChecked(False)
+        self.chk_boll_lower.setChecked(False)
+        self.chk_boll_upper.setChecked(False)
+        
+        # Reload all stocks
+        self.load_all_stocks()
+    
     def on_start_filter(self):
-        """Primary Selection Logic"""
-        min_t = self.spin_turnover_min.value()
-        max_t = self.spin_turnover_max.value()
-        ma_bull = self.chk_ma_bullish.isChecked()
+        """Primary Selection Logic with enhanced filters"""
+        criteria = {}
         
-        results = self.data_service.filter_stocks(min_t, max_t, ma_bull)
+        # Short-term filters
+        if self.chk_turnover.isChecked():
+            criteria['min_turnover'] = self.spin_turnover_min.value()
+            criteria['max_turnover'] = self.spin_turnover_max.value()
         
+        if self.chk_change.isChecked():
+            criteria['min_change'] = self.spin_change_min.value()
+            criteria['max_change'] = self.spin_change_max.value()
+        
+        if self.chk_volume_ratio.isChecked():
+            criteria['min_volume_ratio'] = self.spin_volume_ratio.value()
+        
+        # KDJ filters
+        if self.chk_kdj_golden.isChecked():
+            criteria['kdj_golden_cross'] = True
+        if self.chk_kdj_death.isChecked():
+            criteria['kdj_death_cross'] = True
+        if self.chk_kdj_low.isChecked():
+            criteria['kdj_low_area'] = True
+        if self.chk_kdj_high.isChecked():
+            criteria['kdj_high_area'] = True
+        
+        # MACD filters
+        if self.chk_macd_golden.isChecked():
+            criteria['macd_golden_cross'] = True
+        if self.chk_macd_death.isChecked():
+            criteria['macd_death_cross'] = True
+        if self.chk_macd_above_zero.isChecked():
+            criteria['macd_above_zero'] = True
+        
+        # RSI filters
+        if self.chk_rsi_oversold.isChecked():
+            criteria['rsi_oversold'] = True
+        if self.chk_rsi_overbought.isChecked():
+            criteria['rsi_overbought'] = True
+        
+        # Mid-term filters
+        if self.chk_ma_bullish.isChecked():
+            criteria['ma_bullish'] = True
+        if self.chk_price_above_ma20.isChecked():
+            criteria['price_above_ma20'] = True
+        if self.chk_price_above_ma60.isChecked():
+            criteria['price_above_ma60'] = True
+        if self.chk_boll_lower.isChecked():
+            criteria['boll_lower_break'] = True
+        if self.chk_boll_upper.isChecked():
+            criteria['boll_upper_break'] = True
+        
+        # If no criteria selected, show all stocks
+        if not criteria:
+            QMessageBox.information(self, "提示", "未选择任何筛选条件，显示所有股票")
+            self.load_all_stocks()
+            return
+        
+        # Apply filters
+        try:
+            results = self.data_service.filter_stocks(criteria)
+            self.populate_table(results)
+            
+            # Show result count
+            QMessageBox.information(self, "筛选完成", 
+                                  f"共筛选出 {len(results)} 只符合条件的股票")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"筛选失败: {str(e)}")
+    
+    def populate_table(self, stocks):
+        """Populate the primary table with stock data"""
         self.primary_table.setRowCount(0)
-        self.primary_table.setRowCount(len(results))
+        self.primary_table.setRowCount(len(stocks))
         
-        for row, data in enumerate(results):
+        for row, data in enumerate(stocks):
             self.primary_table.setItem(row, 0, QTableWidgetItem(data["code"]))
             self.primary_table.setItem(row, 1, QTableWidgetItem(data["name"]))
             
-            t_item = QTableWidgetItem(f"{data['turnover']}%")
+            t_item = QTableWidgetItem(f"{data.get('turnover', 0):.2f}%")
             t_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.primary_table.setItem(row, 2, t_item)
             
-            ma_val = "是" if data["ma_bullish"] else "否"
+            ma_val = "✓" if data.get("ma_bullish", False) else "✗"
             ma_item = QTableWidgetItem(ma_val)
             ma_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if data["ma_bullish"]:
-                ma_item.setForeground(QColor("red"))
+            if data.get("ma_bullish", False):
+                ma_item.setForeground(QColor("#4CAF50"))
+            else:
+                ma_item.setForeground(QColor("#999"))
             self.primary_table.setItem(row, 3, ma_item)
 
     def on_primary_item_clicked(self, item):
