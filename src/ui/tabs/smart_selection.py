@@ -527,7 +527,11 @@ class SmartSelectionTab(QWidget):
     def on_llm_stream(self, chunk):
         self.current_stream_response += chunk
         try:
-            html = markdown.markdown(self.current_stream_response)
+            # Enable table extension and other useful extensions for markdown rendering
+            html = markdown.markdown(
+                self.current_stream_response, 
+                extensions=['tables', 'fenced_code', 'nl2br', 'sane_lists']
+            )
         except:
             html = self.current_stream_response
             

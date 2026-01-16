@@ -576,7 +576,11 @@ class TradingMonitorTab(QWidget):
         
         # Render current accumulated text to HTML
         try:
-            html_response = markdown.markdown(self.current_stream_response)
+            # Enable table extension and other useful extensions for markdown rendering
+            html_response = markdown.markdown(
+                self.current_stream_response,
+                extensions=['tables', 'fenced_code', 'nl2br', 'sane_lists']
+            )
         except Exception:
             # Fallback to raw text if markdown fails
             html_response = self.current_stream_response
