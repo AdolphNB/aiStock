@@ -39,7 +39,8 @@ class ConfigManager:
             "notification": {
                 "feishu_webhook": "",
                 "wechat_webhook": ""
-            }
+            },
+            "favorites": []
         }
         
         if os.path.exists(self.CONFIG_PATH):
@@ -47,7 +48,7 @@ class ConfigManager:
                 with open(self.CONFIG_PATH, 'r', encoding='utf-8') as f:
                     loaded_config = json.load(f)
                     # Update config with loaded values
-                    for key in ["llm_providers", "prompts", "appearance", "strategy", "notification"]:
+                    for key in ["llm_providers", "prompts", "appearance", "strategy", "notification", "favorites"]:
                         if key in loaded_config:
                             self.config[key] = loaded_config[key]
             except Exception as e:
@@ -106,3 +107,30 @@ class ConfigManager:
     def get_prompt_names(self):
         prompts = self.get_prompts()
         return list(prompts.keys())
+    
+    def get_favorites(self):
+        """Get favorite stocks list"""
+        return self.config.get("favorites", [])
+    
+    def set_favorites(self, favorites):
+        """Set favorite stocks list"""
+        self.config["favorites"] = favorites
+        self.save_config()
+    
+    def add_favorite(self, code, name):
+        """Add a stock to favorites"""
+        favorites = self.get_favorites()
+        # Check if already exists
+        for fav in favorites:
+            if fav.get("code") == code:
+                return False
+        favorites.append({"code": code, "name": name})
+        self.set_favorites(favorites)
+        return True
+    
+    def remove_favorite(self, code):
+        """Remove a stock from favorites"""
+        favorites = self.get_favorites()
+        favorites = [fav for fav in favorites if fav.get("code") != code]
+        self.set_favorites(favorites)
+        return True

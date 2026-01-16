@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QLabel, QVBoxLayout, QWidget, QApplication)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 # Import Tab Widgets
 from .tabs.trading_monitor import TradingMonitorTab
@@ -14,10 +14,16 @@ except ImportError:
     from utils.config_manager import ConfigManager
 
 class MainWindow(QMainWindow):
+    # Signal for favorites update
+    favoritesUpdated = pyqtSignal(list)
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("股票助手 (AiStockMonitor)")
         self.resize(1280, 800)
+        
+        # Initialize config manager
+        self.config_manager = ConfigManager()
         
         # Central Widget - QTabWidget
         self.tabs = QTabWidget()
@@ -67,3 +73,29 @@ class MainWindow(QMainWindow):
         initial_prompts = list(self.tab_config.prompts.keys())
         self.tab_trading.update_prompts(initial_prompts)
         self.tab_selection.update_prompts(initial_prompts)
+        
+        # Connect favorites signals
+        self.favoritesUpdated.connect(self.tab_trading.update_favorites)
+        self.favoritesUpdated.connect(self.tab_selection.update_favorites)
+        
+        # Connect add/remove favorite signals from tabs
+        self.tab_trading.favoriteAdded.connect(self.on_favorite_added)
+        self.tab_trading.favoriteRemoved.connect(self.on_favorite_removed)
+        self.tab_selection.favoriteAdded.connect(self.on_favorite_added)
+        self.tab_selection.favoriteRemoved.connect(self.on_favorite_removed)
+        
+        # Load initial favorites
+        initial_favorites = self.config_manager.get_favorites()
+        self.favoritesUpdated.emit(initial_favorites)
+    
+    def on_favorite_added(self, code, name):
+        """Handle favorite stock added"""
+        if self.config_manager.add_favorite(code, name):
+            favorites = self.config_manager.get_favorites()
+            self.favoritesUpdated.emit(favorites)
+    
+    def on_favorite_removed(self, code):
+        """Handle favorite stock removed"""
+        self.config_manager.remove_favorite(code)
+        favorites = self.config_manager.get_favorites()
+        self.favoritesUpdated.emit(favorites)

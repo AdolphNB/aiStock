@@ -41,5 +41,15 @@
     "notification": {
         "feishu_webhook": "",
         "wechat_webhook": ""
-    }
+    },
+    "favorites": [
+        {
+            "code": "600550",
+            "name": "保变电气"
+        },
+        {
+            "code": "688609",
+            "name": "九联科技"
+        }
+    ]
 }

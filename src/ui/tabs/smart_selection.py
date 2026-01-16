@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                              QGroupBox, QHeaderView, QComboBox, QLabel, QDoubleSpinBox, 
                              QCheckBox, QAbstractItemView, QMessageBox, QTabWidget,
                              QScrollArea, QSpinBox)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 import markdown
 
@@ -18,6 +18,10 @@ except ImportError:
     from ..utils.worker import LLMWorker
 
 class SmartSelectionTab(QWidget):
+    # Signals for favorite stock management
+    favoriteAdded = pyqtSignal(str, str)  # code, name
+    favoriteRemoved = pyqtSignal(str)  # code
+    
     def __init__(self):
         super().__init__()
         self.llm_service = LLMService()
@@ -594,23 +598,48 @@ class SmartSelectionTab(QWidget):
 
     # --- Favorites Logic ---
     def on_add_to_favorites(self):
+        """Add selected stock from AI results to favorites"""
         row = self.llm_table.currentRow()
-        if row < 0: return
+        if row < 0:
+            QMessageBox.warning(self, "提示", "请先选择一只股票")
+            return
         
         code = self.llm_table.item(row, 0).text()
         name = self.llm_table.item(row, 1).text()
         
-        # Check duplicates
-        for r in range(self.fav_table.rowCount()):
-            if self.fav_table.item(r, 0).text() == code:
-                return 
-        
-        fav_row = self.fav_table.rowCount()
-        self.fav_table.insertRow(fav_row)
-        self.fav_table.setItem(fav_row, 0, QTableWidgetItem(code))
-        self.fav_table.setItem(fav_row, 1, QTableWidgetItem(name))
+        # Emit signal to add to favorites (MainWindow will handle duplicates)
+        self.favoriteAdded.emit(code, name)
 
     def on_remove_favorites(self):
+        """Remove selected stock from favorites"""
         row = self.fav_table.currentRow()
-        if row >= 0:
-            self.fav_table.removeRow(row)
+        if row < 0:
+            QMessageBox.warning(self, "提示", "请先选择要移除的股票")
+            return
+        
+        code = self.fav_table.item(row, 0).text()
+        name = self.fav_table.item(row, 1).text()
+        
+        reply = QMessageBox.question(self, "确认", 
+                                    f"确定要从自选股中移除 {name} ({code}) 吗？",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.favoriteRemoved.emit(code)
+    
+    def update_favorites(self, favorites):
+        """Update favorites table from config"""
+        self.fav_table.setRowCount(0)
+        self.fav_table.setRowCount(len(favorites))
+        
+        for row, fav in enumerate(favorites):
+            code = fav.get('code', '')
+            name = fav.get('name', '')
+            
+            code_item = QTableWidgetItem(code)
+            code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.fav_table.setItem(row, 0, code_item)
+            
+            name_item = QTableWidgetItem(name)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.fav_table.setItem(row, 1, name_item)

@@ -1,25 +1,36 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QTableWidget, QTableWidgetItem, QTextEdit, QPushButton, QLabel, 
-                             QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle, QMessageBox)
-from PyQt6.QtCore import Qt
+                             QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle, QMessageBox,
+                             QLineEdit, QCompleter, QListWidgetItem)
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 import markdown
+from pypinyin import lazy_pinyin
 try:
     from services.llm_service import LLMService
+    from services.stock_data_service import StockDataService
     from ui.utils.worker import LLMWorker
 except ImportError:
     # Fallback for relative imports if run as package
     from ...services.llm_service import LLMService
+    from ...services.stock_data_service import StockDataService
     from ..utils.worker import LLMWorker
 
 class TradingMonitorTab(QWidget):
+    # Signals for favorite stock management
+    favoriteAdded = pyqtSignal(str, str)  # code, name
+    favoriteRemoved = pyqtSignal(str)  # code
+    
     def __init__(self):
         super().__init__()
         self.current_stock_code = None
         self.current_stock_name = None
         self.llm_service = LLMService()
+        self.data_service = StockDataService()
+        self.all_stocks = []  # Store all stocks for search
         self.init_ui()
         self.load_initial_config()
+        self.load_all_stocks()
 
     def load_initial_config(self):
         """Load initial models and prompts"""
@@ -50,6 +61,38 @@ class TradingMonitorTab(QWidget):
         # Watchlist
         watchlist_group = QGroupBox("自选股")
         watchlist_layout = QVBoxLayout(watchlist_group)
+        
+        # Search and Add Controls
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索: 代码/名称/拼音首字母...")
+        self.search_input.textChanged.connect(self.on_search_text_changed)
+        self.search_input.returnPressed.connect(self.on_search_item_selected)
+        
+        self.btn_add_watchlist = QPushButton("➕")
+        self.btn_add_watchlist.setFixedWidth(40)
+        self.btn_add_watchlist.setToolTip("添加到自选股")
+        self.btn_add_watchlist.clicked.connect(self.on_add_to_watchlist)
+        
+        self.btn_remove_watchlist = QPushButton("➖")
+        self.btn_remove_watchlist.setFixedWidth(40)
+        self.btn_remove_watchlist.setToolTip("从自选股移除")
+        self.btn_remove_watchlist.clicked.connect(self.on_remove_from_watchlist)
+        
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.btn_add_watchlist)
+        search_layout.addWidget(self.btn_remove_watchlist)
+        watchlist_layout.addLayout(search_layout)
+        
+        # Search Results List (initially hidden)
+        self.search_results_list = QListWidget()
+        self.search_results_list.setMaximumHeight(150)
+        self.search_results_list.hide()
+        self.search_results_list.itemClicked.connect(self.on_search_item_selected)
+        self.search_results_list.itemDoubleClicked.connect(self.on_search_item_double_clicked)
+        watchlist_layout.addWidget(self.search_results_list)
+        
+        # Watchlist Table
         self.watchlist_table = QTableWidget(0, 4)
         self.watchlist_table.setHorizontalHeaderLabels(["代码", "名称", "现价", "涨跌幅"])
         self.watchlist_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -250,9 +293,6 @@ class TradingMonitorTab(QWidget):
         index = self.prompt_selector.findText(current_text)
         if index >= 0:
             self.prompt_selector.setCurrentIndex(index)
-        
-        # Load sample data
-        self.add_sample_data()
 
     def update_models(self, model_names):
         """Update model selector options"""
@@ -264,28 +304,171 @@ class TradingMonitorTab(QWidget):
         index = self.model_selector.findText(current_text)
         if index >= 0:
             self.model_selector.setCurrentIndex(index)
-
-    def add_sample_data(self):
-        data = [
-            ("000001", "平安银行", "10.50", "+1.2%"),
-            ("600519", "贵州茅台", "1750.00", "-0.5%"),
-            ("000858", "五粮液", "150.00", "+0.8%"),
-            ("300750", "宁德时代", "200.00", "+2.5%"),
-            ("601127", "赛力斯", "88.88", "+5.2%"),
-        ]
-        self.watchlist_table.setRowCount(len(data))
-        for row, item_data in enumerate(data):
-            for col, value in enumerate(item_data):
-                item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if col == 3: # Change
-                    if value.startswith("+"):
-                        item.setForeground(QColor("#d32f2f")) # Red
-                    elif value.startswith("-"):
-                        item.setForeground(QColor("#388e3c")) # Green
-                self.watchlist_table.setItem(row, col, item)
-
-        # --- Add Monitor Sample Data ---
+    
+    def load_all_stocks(self):
+        """Load all stocks for search functionality"""
+        try:
+            self.all_stocks = self.data_service.get_all_stocks()
+            # Pre-compute pinyin initials for each stock
+            for stock in self.all_stocks:
+                pinyin_list = lazy_pinyin(stock['name'])
+                stock['pinyin_full'] = ''.join(pinyin_list)  # Full pinyin: zhongguohedian
+                stock['pinyin_initials'] = ''.join([p[0] for p in pinyin_list])  # Initials: zghd
+        except Exception as e:
+            print(f"Failed to load stocks: {e}")
+            self.all_stocks = []
+            # Add sample data for demonstration
+            self.add_monitor_sample_data()
+    
+    def on_search_text_changed(self, text):
+        """Handle search text change with fuzzy matching"""
+        text = text.strip().lower()
+        
+        if not text:
+            self.search_results_list.hide()
+            return
+        
+        # Find matching stocks
+        matches = []
+        for stock in self.all_stocks:
+            code = stock['code']
+            name = stock['name']
+            name_lower = name.lower()
+            
+            # Match by code (exact or prefix)
+            if code.startswith(text):
+                matches.append((stock, 1))  # Priority 1: code match
+                continue
+            
+            # Match by name (contains)
+            if text in name_lower:
+                matches.append((stock, 2))  # Priority 2: name contains
+                continue
+            
+            # Match by pinyin initials (e.g., "zghd" for "中国核电")
+            if 'pinyin_initials' in stock and text in stock['pinyin_initials']:
+                matches.append((stock, 3))  # Priority 3: pinyin initials
+                continue
+            
+            # Match by full pinyin (e.g., "zhongguo" for "中国核电")
+            if 'pinyin_full' in stock and text in stock['pinyin_full']:
+                matches.append((stock, 4))  # Priority 4: full pinyin
+        
+        # Sort by priority and limit results
+        matches.sort(key=lambda x: x[1])
+        matches = matches[:20]  # Show top 20 results
+        
+        # Display results
+        self.search_results_list.clear()
+        if matches:
+            for stock, _ in matches:
+                item = QListWidgetItem(f"{stock['code']} {stock['name']}")
+                item.setData(Qt.ItemDataRole.UserRole, stock)
+                self.search_results_list.addItem(item)
+            self.search_results_list.show()
+        else:
+            self.search_results_list.hide()
+    
+    def on_search_item_selected(self):
+        """Handle search result item selection (Enter key or single click)"""
+        current_item = self.search_results_list.currentItem()
+        if current_item:
+            stock = current_item.data(Qt.ItemDataRole.UserRole)
+            self.search_input.setText(f"{stock['code']} {stock['name']}")
+            self.search_results_list.hide()
+    
+    def on_search_item_double_clicked(self, item):
+        """Handle double-click on search result - add to watchlist directly"""
+        stock = item.data(Qt.ItemDataRole.UserRole)
+        if stock:
+            self.favoriteAdded.emit(stock['code'], stock['name'])
+            self.search_input.clear()
+            self.search_results_list.hide()
+    
+    def on_add_to_watchlist(self):
+        """Add stock to watchlist from search"""
+        # First try to get from selected search result
+        current_item = self.search_results_list.currentItem()
+        if current_item:
+            stock = current_item.data(Qt.ItemDataRole.UserRole)
+            self.favoriteAdded.emit(stock['code'], stock['name'])
+            self.search_input.clear()
+            self.search_results_list.hide()
+            return
+        
+        # Otherwise parse the input text
+        text = self.search_input.text().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "请输入股票代码或名称，或从搜索结果中选择")
+            return
+        
+        # Parse input (could be "000001" or "000001 平安银行")
+        parts = text.split()
+        code = None
+        name = None
+        
+        # Try to find stock by code first
+        if parts:
+            for stock in self.all_stocks:
+                if stock['code'] == parts[0]:
+                    code = stock['code']
+                    name = stock['name']
+                    break
+        
+        if not code:
+            QMessageBox.warning(self, "提示", "未找到该股票，请从搜索结果中选择或输入正确的股票代码")
+            return
+        
+        # Emit signal to add to favorites
+        self.favoriteAdded.emit(code, name)
+        self.search_input.clear()
+        self.search_results_list.hide()
+    
+    def on_remove_from_watchlist(self):
+        """Remove selected stock from watchlist"""
+        row = self.watchlist_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "提示", "请先选择要移除的股票")
+            return
+        
+        code = self.watchlist_table.item(row, 0).text()
+        name = self.watchlist_table.item(row, 1).text()
+        
+        reply = QMessageBox.question(self, "确认", 
+                                    f"确定要从自选股中移除 {name} ({code}) 吗？",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.favoriteRemoved.emit(code)
+    
+    def update_favorites(self, favorites):
+        """Update watchlist table with favorites from config"""
+        self.watchlist_table.setRowCount(0)
+        self.watchlist_table.setRowCount(len(favorites))
+        
+        for row, fav in enumerate(favorites):
+            code = fav.get('code', '')
+            name = fav.get('name', '')
+            
+            code_item = QTableWidgetItem(code)
+            code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.watchlist_table.setItem(row, 0, code_item)
+            
+            name_item = QTableWidgetItem(name)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.watchlist_table.setItem(row, 1, name_item)
+            
+            # TODO: Fetch real-time price and change data
+            price_item = QTableWidgetItem("--")
+            price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.watchlist_table.setItem(row, 2, price_item)
+            
+            change_item = QTableWidgetItem("--")
+            change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.watchlist_table.setItem(row, 3, change_item)
+    
+    def add_monitor_sample_data(self):
+        """Add sample data to monitor list"""
         monitor_data = [
             ("000001", "平安银行", "运行中"),
             ("600519", "贵州茅台", "已停止"),
