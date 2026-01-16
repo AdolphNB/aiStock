@@ -28,6 +28,7 @@ class TradingMonitorTab(QWidget):
         self.llm_service = LLMService()
         self.data_service = StockDataService()
         self.all_stocks = []  # Store all stocks for search
+        self.mock_strategies = {}  # Store strategy details for monitored stocks
         self.init_ui()
         self.load_initial_config()
         self.load_all_stocks()
