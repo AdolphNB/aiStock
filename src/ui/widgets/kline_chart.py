@@ -22,13 +22,7 @@ class KLineChartWidget(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
-        
-        # Title label
-        self.title_label = QLabel("K线预览")
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #00FF00;")
-        layout.addWidget(self.title_label)
+        layout.setSpacing(0)
         
         # Image label for static preview
         self.chart_label = QLabel()
@@ -65,8 +59,8 @@ class KLineChartWidget(QWidget):
             self.clear_chart()
             return
         
-        # Update title
-        self.title_label.setText(f"{stock_name}({stock_code})")
+        # Keep title as "K线预览" - don't show stock name
+        # self.title_label.setText(f"{stock_name}({stock_code})")
         
         # Generate static chart image
         self.render_compact_chart(kline_data)
@@ -120,6 +114,15 @@ class KLineChartWidget(QWidget):
         
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw price grid lines (horizontal)
+        grid_color = QColor(40, 40, 40)  # Very dark gray for grid lines
+        painter.setPen(QPen(grid_color, 1))
+        
+        # Draw 5 horizontal grid lines
+        for i in range(5):
+            y = padding + (kline_height * i / 4)
+            painter.drawLine(padding, int(y), img_width - padding, int(y))
         
         # Calculate bar width
         bar_width = max(2, chart_width // (n * 2))
@@ -207,7 +210,6 @@ class KLineChartWidget(QWidget):
         """Clear the chart"""
         self.chart_label.clear()
         self.chart_label.setText("未加载数据")
-        self.title_label.setText("K线预览")
         self.stock_code = ""
         self.stock_name = ""
         self.kline_data = []
