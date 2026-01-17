@@ -13,6 +13,9 @@
             "model_name": "Qwen/Qwen3-30B-A3B-Instruct-2507"
         }
     },
+    "server": {
+        "url": "http://www.mcptools.xin:8000"
+    },
     "prompts": {
         "通用助手": {
             "name": "通用助手",

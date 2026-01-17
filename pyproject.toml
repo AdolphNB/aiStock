@@ -14,7 +14,9 @@ dependencies = [
     "pandas>=2.3.3",
     "pypinyin>=0.53.0",
     "PyQt6>=6.6.0",
+    "pyqtgraph>=0.13.0",
     "python-dotenv>=1.2.1",
+    "requests>=2.31.0",
 ]
 
 [build-system]

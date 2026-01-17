@@ -2,12 +2,29 @@ import random
 import pandas as pd
 import os
 from pathlib import Path
+import requests
+from typing import List, Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class StockDataService:
-    def __init__(self):
+    def __init__(self, server_url: str = None):
         # Load stocks from CSV
         self.stocks = self._load_stocks_from_csv()
         self.stock_cache = {}  # Cache for stock data with indicators
+        
+        # Load server URL from config if not provided
+        if server_url is None:
+            try:
+                from utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                server_url = config_manager.get_server_url()
+            except:
+                server_url = "http://localhost:8000"
+        
+        self.server_url = server_url
+        logger.info(f"StockDataService initialized with server URL: {server_url}")
 
     def _load_stocks_from_csv(self):
         """Load stock list from all_stocks.csv"""
@@ -266,3 +283,80 @@ class StockDataService:
             if stock["code"] == code:
                 return stock
         return None
+
+    def fetch_realtime_stocks(self, stock_codes: List[str]) -> Dict[str, Dict]:
+        """
+        Fetch realtime stock data from server.
+        
+        Args:
+            stock_codes: List of stock codes to fetch
+            
+        Returns:
+            Dictionary with stock code as key and stock data as value
+        """
+        try:
+            response = requests.post(
+                f"{self.server_url}/api/client/data/realtime-stocks",
+                json={"stock_codes": stock_codes},
+                timeout=10
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get("data", {})
+        except Exception as e:
+            logger.error(f"Error fetching realtime stocks from server: {e}")
+            return {}
+
+    def update_watched_stocks(self, stock_codes: List[str]) -> bool:
+        """
+        Update the list of watched stocks on the server.
+        
+        Args:
+            stock_codes: List of stock codes to watch
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            response = requests.post(
+                f"{self.server_url}/api/client/data/watch-stocks",
+                json={"stock_codes": stock_codes},
+                timeout=10
+            )
+            response.raise_for_status()
+            logger.info(f"Updated watched stocks: {stock_codes}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating watched stocks on server: {e}")
+            return False
+
+    def fetch_kline_data(self, stock_code: str, period: str = "daily", 
+                        adjust: str = "qfq", days: int = 60) -> Optional[List[Dict]]:
+        """
+        Fetch K-line data for a stock from server.
+        
+        Args:
+            stock_code: Stock code
+            period: Period type ('daily', 'weekly', 'monthly')
+            adjust: Adjustment type ('qfq', 'hfq', '')
+            days: Number of days to fetch
+            
+        Returns:
+            List of K-line data dictionaries or None if error
+        """
+        try:
+            response = requests.get(
+                f"{self.server_url}/api/client/data/kline/{stock_code}",
+                params={
+                    "period": period,
+                    "adjust": adjust,
+                    "days": days
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get("data", [])
+        except Exception as e:
+            logger.error(f"Error fetching K-line data for {stock_code}: {e}")
+            return None

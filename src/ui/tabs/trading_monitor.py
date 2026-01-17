@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                              QTableWidget, QTableWidgetItem, QTextEdit, QPushButton, QLabel, 
                              QListWidget, QGroupBox, QHeaderView, QComboBox, QStyle, QMessageBox,
                              QLineEdit, QCompleter, QListWidgetItem)
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor
 import markdown
 from pypinyin import lazy_pinyin
@@ -10,11 +10,13 @@ try:
     from services.llm_service import LLMService
     from services.stock_data_service import StockDataService
     from ui.utils.worker import LLMWorker
+    from ui.widgets.kline_chart import KLineChartWidget
 except ImportError:
     # Fallback for relative imports if run as package
     from ...services.llm_service import LLMService
     from ...services.stock_data_service import StockDataService
     from ..utils.worker import LLMWorker
+    from ..widgets.kline_chart import KLineChartWidget
 
 class TradingMonitorTab(QWidget):
     # Signals for favorite stock management
@@ -29,6 +31,12 @@ class TradingMonitorTab(QWidget):
         self.data_service = StockDataService()
         self.all_stocks = []  # Store all stocks for search
         self.mock_strategies = {}  # Store strategy details for monitored stocks
+        
+        # Timer for refreshing realtime stock data
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.refresh_realtime_data)
+        self.refresh_interval = 30000  # 30 seconds
+        
         self.init_ui()
         self.load_initial_config()
         self.load_all_stocks()
@@ -109,18 +117,10 @@ class TradingMonitorTab(QWidget):
         # Mini Chart
         chart_group = QGroupBox("K线预览")
         chart_layout = QVBoxLayout(chart_group)
-        self.chart_label = QLabel("K线图表区域\n(待集成)")
-        self.chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.chart_label.setStyleSheet("""
-            QLabel {
-                background-color: #2b2b2b; 
-                color: #888; 
-                border: 1px dashed #555; 
-                border-radius: 4px;
-                font-size: 14px;
-            }
-        """)
-        chart_layout.addWidget(self.chart_label)
+        
+        # Replace placeholder with actual K-line chart widget
+        self.kline_chart = KLineChartWidget()
+        chart_layout.addWidget(self.kline_chart)
         
         # Splitter for Left Area
         left_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -459,7 +459,7 @@ class TradingMonitorTab(QWidget):
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.watchlist_table.setItem(row, 1, name_item)
             
-            # TODO: Fetch real-time price and change data
+            # Initialize with placeholder values
             price_item = QTableWidgetItem("--")
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.watchlist_table.setItem(row, 2, price_item)
@@ -467,6 +467,67 @@ class TradingMonitorTab(QWidget):
             change_item = QTableWidgetItem("--")
             change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.watchlist_table.setItem(row, 3, change_item)
+        
+        # Update watched stocks on server
+        stock_codes = [fav.get('code', '') for fav in favorites]
+        self.data_service.update_watched_stocks(stock_codes)
+        
+        # Start/restart timer for refreshing realtime data
+        if stock_codes:
+            self.refresh_timer.start(self.refresh_interval)
+            # Fetch immediately
+            self.refresh_realtime_data()
+        else:
+            self.refresh_timer.stop()
+    
+    def refresh_realtime_data(self):
+        """Refresh realtime stock data for watchlist"""
+        # Get stock codes from watchlist
+        stock_codes = []
+        for row in range(self.watchlist_table.rowCount()):
+            code_item = self.watchlist_table.item(row, 0)
+            if code_item:
+                stock_codes.append(code_item.text())
+        
+        if not stock_codes:
+            return
+        
+        # Fetch realtime data from server
+        realtime_data = self.data_service.fetch_realtime_stocks(stock_codes)
+        
+        # Update table with realtime data
+        for row in range(self.watchlist_table.rowCount()):
+            code_item = self.watchlist_table.item(row, 0)
+            if not code_item:
+                continue
+            
+            code = code_item.text()
+            if code in realtime_data:
+                data = realtime_data[code]
+                
+                # Update price
+                price = data.get('price', 0)
+                price_item = QTableWidgetItem(f"{price:.2f}")
+                price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                
+                # Update change percent
+                change_percent = data.get('change_percent', 0)
+                change_item = QTableWidgetItem(f"{change_percent:+.2f}%")
+                change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                
+                # Color based on change
+                if change_percent > 0:
+                    price_item.setForeground(QColor("#FF0000"))  # Red for up
+                    change_item.setForeground(QColor("#FF0000"))
+                elif change_percent < 0:
+                    price_item.setForeground(QColor("#00FF00"))  # Green for down
+                    change_item.setForeground(QColor("#00FF00"))
+                else:
+                    price_item.setForeground(QColor("#888888"))  # Gray for no change
+                    change_item.setForeground(QColor("#888888"))
+                
+                self.watchlist_table.setItem(row, 2, price_item)
+                self.watchlist_table.setItem(row, 3, change_item)
     
     def add_monitor_sample_data(self):
         """Add sample data to monitor list"""
@@ -519,13 +580,28 @@ class TradingMonitorTab(QWidget):
                 }
             """)
             
+            # Fetch and display K-line data
+            self.load_kline_chart(code, name)
+            
             # Simulate LLM providing a strategy suggestion
             self.chat_history.append(f"<b>[系统]</b> 已选择 {name} ({code})。")
-            # self.chat_history.append(f"<b>[LLM助手]</b> 针对 {name} 的建议策略：\n"
-            #                          f"- 监控周期：30分钟\n"
-            #                          f"- 建议买入：突破昨日高点\n"
-            #                          f"- 建议卖出：跌破5日均线\n"
-            #                          f"您可以点击“采纳”将此策略加入监控，或点击“拒绝”忽略。")
+    
+    def load_kline_chart(self, stock_code: str, stock_name: str):
+        """Load K-line chart for selected stock"""
+        try:
+            # Fetch K-line data from server
+            kline_data = self.data_service.fetch_kline_data(stock_code, period="daily", adjust="qfq", days=60)
+            
+            if kline_data:
+                # Update chart
+                self.kline_chart.update_chart(stock_code, stock_name, kline_data)
+            else:
+                # Clear chart if no data
+                self.kline_chart.clear_chart()
+                QMessageBox.warning(self, "提示", f"无法获取 {stock_name} 的K线数据")
+        except Exception as e:
+            self.kline_chart.clear_chart()
+            QMessageBox.warning(self, "错误", f"加载K线数据失败: {str(e)}")
 
     def on_send_message(self):
         user_input = self.chat_input.toPlainText().strip()

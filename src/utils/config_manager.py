@@ -40,6 +40,9 @@ class ConfigManager:
                 "feishu_webhook": "",
                 "wechat_webhook": ""
             },
+            "server": {
+                "url": "http://localhost:8000"
+            },
             "favorites": []
         }
         
@@ -48,7 +51,7 @@ class ConfigManager:
                 with open(self.CONFIG_PATH, 'r', encoding='utf-8') as f:
                     loaded_config = json.load(f)
                     # Update config with loaded values
-                    for key in ["llm_providers", "prompts", "appearance", "strategy", "notification", "favorites"]:
+                    for key in ["llm_providers", "prompts", "appearance", "strategy", "notification", "server", "favorites"]:
                         if key in loaded_config:
                             self.config[key] = loaded_config[key]
             except Exception as e:
@@ -134,3 +137,14 @@ class ConfigManager:
         favorites = [fav for fav in favorites if fav.get("code") != code]
         self.set_favorites(favorites)
         return True
+    
+    def get_server_url(self):
+        """Get server URL"""
+        return self.config.get("server", {}).get("url", "http://localhost:8000")
+    
+    def set_server_url(self, url):
+        """Set server URL"""
+        if "server" not in self.config:
+            self.config["server"] = {}
+        self.config["server"]["url"] = url
+        self.save_config()
