@@ -13,9 +13,6 @@
             "model_name": "Qwen/Qwen3-30B-A3B-Instruct-2507"
         }
     },
-    "server": {
-        "url": "http://www.mcptools.xin:8000"
-    },
     "prompts": {
         "通用助手": {
             "name": "通用助手",
@@ -57,14 +54,17 @@
         "feishu_webhook": "",
         "wechat_webhook": ""
     },
+    "server": {
+        "url": "http://www.mcptools.xin:8000"
+    },
     "favorites": [
-        {
-            "code": "600550",
-            "name": "保变电气"
-        },
         {
             "code": "301308",
             "name": "江波龙"
+        },
+        {
+            "code": "688609",
+            "name": "九联科技"
         }
     ]
 }

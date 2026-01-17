@@ -296,7 +296,7 @@ class StockDataService:
         """
         try:
             response = requests.post(
-                f"{self.server_url}/api/client/data/realtime-stocks",
+                f"{self.server_url}/api/v1/data/realtime-stocks",
                 json={"stock_codes": stock_codes},
                 timeout=10
             )
@@ -319,7 +319,7 @@ class StockDataService:
         """
         try:
             response = requests.post(
-                f"{self.server_url}/api/client/data/watch-stocks",
+                f"{self.server_url}/api/v1/data/watch-stocks",
                 json={"stock_codes": stock_codes},
                 timeout=10
             )
@@ -346,7 +346,7 @@ class StockDataService:
         """
         try:
             response = requests.get(
-                f"{self.server_url}/api/client/data/kline/{stock_code}",
+                f"{self.server_url}/api/v1/data/kline/{stock_code}",
                 params={
                     "period": period,
                     "adjust": adjust,
