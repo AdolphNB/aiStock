@@ -32,6 +32,9 @@ class SmartSelectionTab(QWidget):
         
         # Load all stocks on initialization
         self.load_all_stocks()
+        
+        # Disable all controls (feature under development)
+        self.disable_all_controls()
 
     def load_initial_config(self):
         """Load initial models and prompts"""
@@ -647,3 +650,53 @@ class SmartSelectionTab(QWidget):
             name_item = QTableWidgetItem(name)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.fav_table.setItem(row, 1, name_item)
+    
+    def disable_all_controls(self):
+        """Disable all controls in the smart selection tab"""
+        # Disable all checkboxes (short-term filters)
+        self.chk_turnover.setEnabled(False)
+        self.chk_change.setEnabled(False)
+        self.chk_volume_ratio.setEnabled(False)
+        self.chk_kdj_golden.setEnabled(False)
+        self.chk_kdj_death.setEnabled(False)
+        self.chk_kdj_low.setEnabled(False)
+        self.chk_kdj_high.setEnabled(False)
+        self.chk_macd_golden.setEnabled(False)
+        self.chk_macd_death.setEnabled(False)
+        self.chk_macd_above_zero.setEnabled(False)
+        self.chk_rsi_oversold.setEnabled(False)
+        self.chk_rsi_overbought.setEnabled(False)
+        
+        # Disable all checkboxes (mid-term filters)
+        self.chk_ma_bullish.setEnabled(False)
+        self.chk_price_above_ma20.setEnabled(False)
+        self.chk_price_above_ma60.setEnabled(False)
+        self.chk_boll_lower.setEnabled(False)
+        self.chk_boll_upper.setEnabled(False)
+        
+        # Disable all spinboxes
+        self.spin_turnover_min.setEnabled(False)
+        self.spin_turnover_max.setEnabled(False)
+        self.spin_change_min.setEnabled(False)
+        self.spin_change_max.setEnabled(False)
+        self.spin_volume_ratio.setEnabled(False)
+        
+        # Disable all buttons
+        self.btn_reset_filter.setEnabled(False)
+        self.btn_start_filter.setEnabled(False)
+        self.btn_send.setEnabled(False)
+        self.btn_auto_analyze.setEnabled(False)
+        self.btn_add_fav.setEnabled(False)
+        self.btn_remove_fav.setEnabled(False)
+        
+        # Disable comboboxes
+        self.model_selector.setEnabled(False)
+        self.prompt_selector.setEnabled(False)
+        
+        # Disable text input
+        self.chat_input.setEnabled(False)
+        
+        # Disable tables (set to no selection)
+        self.primary_table.setEnabled(False)
+        self.llm_table.setEnabled(False)
+        self.fav_table.setEnabled(False)
