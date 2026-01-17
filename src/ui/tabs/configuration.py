@@ -88,7 +88,17 @@ class ConfigTab(QWidget):
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
-        splitter.setSizes([400, 400])
+        
+        # Set initial sizes: left panel ~600px, right panel ~600px for balanced display
+        # These proportions will be maintained on maximize
+        splitter.setSizes([700, 700])
+        
+        # Set minimum widths to ensure reasonable display
+        left_widget.setMinimumWidth(400)
+        right_widget.setMinimumWidth(400)
+        
+        # Make splitter handle more visible for easy adjustment
+        splitter.setHandleWidth(2)
         
         main_layout.addWidget(splitter)
 

@@ -5,6 +5,9 @@ from pathlib import Path
 import requests
 from typing import List, Dict, Optional
 import logging
+import threading
+import time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +16,15 @@ class StockDataService:
         # Load stocks from CSV
         self.stocks = self._load_stocks_from_csv()
         self.stock_cache = {}  # Cache for stock data with indicators
+        
+        # Price cache: {stock_code: {price_data, timestamp}}
+        self.price_cache = {}
+        self.price_cache_lock = threading.Lock()
+        
+        # Auto-update control
+        self.auto_update_running = False
+        self.auto_update_thread = None
+        self.watched_stocks = []  # List of stock codes to monitor
         
         # Load server URL from config if not provided
         if server_url is None:
@@ -360,3 +372,261 @@ class StockDataService:
         except Exception as e:
             logger.error(f"Error fetching K-line data for {stock_code}: {e}")
             return None
+
+    def get_cached_price(self, stock_code: str) -> Optional[Dict]:
+        """
+        Get cached price data for a stock. Returns immediately.
+        
+        Args:
+            stock_code: Stock code
+            
+        Returns:
+            Cached price data or None if not cached
+        """
+        with self.price_cache_lock:
+            if stock_code in self.price_cache:
+                cache_entry = self.price_cache[stock_code]
+                return {
+                    **cache_entry['data'],
+                    'cached_at': cache_entry['timestamp'],
+                    'from_cache': True
+                }
+        return None
+
+    def fetch_realtime_price(self, stock_code: str) -> Optional[Dict]:
+        """
+        Fetch realtime price for a single stock using akshare bid-ask API.
+        Updates cache after fetching.
+        
+        Args:
+            stock_code: Stock code (e.g., "600000" or "000001")
+            
+        Returns:
+            Price data dictionary or None if error
+        """
+        try:
+            import akshare as ak
+            
+            # Ensure stock code is 6 digits without prefix
+            if len(stock_code) > 6:
+                stock_code = stock_code[-6:]  # Remove SH/SZ prefix if present
+            
+            # Use stock_bid_ask_em for single stock (much faster)
+            df = ak.stock_bid_ask_em(symbol=stock_code)
+            
+            if df is None or df.empty:
+                logger.warning(f"Stock {stock_code} not found")
+                # Return cached data if available
+                with self.price_cache_lock:
+                    if stock_code in self.price_cache:
+                        cache_entry = self.price_cache[stock_code]
+                        logger.info(f"Returning stale cache for {stock_code}")
+                        return {
+                            **cache_entry['data'],
+                            'from_cache': True,
+                            'stale': True
+                        }
+                return None
+            
+            # Extract data from the DataFrame
+            # stock_bid_ask_em returns columns like: item, value
+            data_dict = {}
+            for _, row in df.iterrows():
+                item = row.get('item', '')
+                value = row.get('value', '')
+                data_dict[item] = value
+            
+            # Safe conversion functions
+            def safe_float(value, default=0.0):
+                try:
+                    if isinstance(value, str):
+                        value = value.replace(',', '').replace('%', '')
+                    return float(value) if value and str(value) != '-' else default
+                except (ValueError, TypeError):
+                    return default
+            
+            # Map fields to our format
+            current_price = safe_float(data_dict.get('最新', data_dict.get('现价', 0)))
+            last_close = safe_float(data_dict.get('昨收', 0))
+            
+            # Calculate change and percent if not provided
+            if last_close > 0:
+                chg = current_price - last_close
+                percent = (chg / last_close) * 100
+            else:
+                chg = 0
+                percent = 0
+            
+            price_data = {
+                'code': stock_code,
+                'name': str(data_dict.get('名称', stock_code)),
+                'current': current_price,
+                'percent': percent,
+                'chg': chg,
+                'volume': safe_float(data_dict.get('成交量', 0)),
+                'amount': safe_float(data_dict.get('成交额', 0)),
+                'turnover_rate': safe_float(data_dict.get('换手率', 0)),
+                'open': safe_float(data_dict.get('今开', 0)),
+                'high': safe_float(data_dict.get('最高', 0)),
+                'low': safe_float(data_dict.get('最低', 0)),
+                'last_close': last_close,
+                'timestamp': datetime.now().isoformat(),
+                'from_cache': False
+            }
+            
+            # Update cache
+            with self.price_cache_lock:
+                self.price_cache[stock_code] = {
+                    'data': price_data,
+                    'timestamp': datetime.now().isoformat()
+                }
+            
+            logger.info(f"Updated price for {stock_code}: {price_data['current']}")
+            return price_data
+                
+        except Exception as e:
+            logger.error(f"Error fetching realtime price for {stock_code}: {e}")
+            # Return cached data if available even on error
+            with self.price_cache_lock:
+                if stock_code in self.price_cache:
+                    cache_entry = self.price_cache[stock_code]
+                    logger.info(f"Returning stale cache for {stock_code} due to fetch error")
+                    return {
+                        **cache_entry['data'],
+                        'from_cache': True,
+                        'stale': True
+                    }
+            return None
+
+    def fetch_multiple_realtime_prices(self, stock_codes: List[str]) -> Dict[str, Dict]:
+        """
+        Fetch realtime prices for multiple stocks.
+        Uses individual API calls for each stock.
+        
+        Args:
+            stock_codes: List of stock codes
+            
+        Returns:
+            Dictionary with stock code as key and price data as value
+        """
+        results = {}
+        
+        # Normalize stock codes
+        normalized_codes = []
+        for code in stock_codes:
+            if len(code) > 6:
+                normalized_codes.append(code[-6:])
+            else:
+                normalized_codes.append(code)
+        
+        # Fetch each stock individually
+        for code in normalized_codes:
+            try:
+                price_data = self.fetch_realtime_price(code)
+                if price_data:
+                    results[code] = price_data
+            except Exception as e:
+                logger.error(f"Error fetching price for {code}: {e}")
+                # Try to use cache
+                with self.price_cache_lock:
+                    if code in self.price_cache:
+                        results[code] = {
+                            **self.price_cache[code]['data'],
+                            'from_cache': True,
+                            'stale': True
+                        }
+        
+        logger.info(f"Updated prices for {len(results)}/{len(normalized_codes)} stocks")
+        return results
+
+    def start_auto_update(self, stock_codes: List[str], interval: int = 10):
+        """
+        Start automatic price updates in background thread.
+        
+        Args:
+            stock_codes: List of stock codes to monitor
+            interval: Update interval in seconds (default: 10)
+        """
+        if self.auto_update_running:
+            logger.warning("Auto-update already running")
+            return
+        
+        self.watched_stocks = stock_codes.copy()
+        self.auto_update_running = True
+        
+        def update_loop():
+            logger.info(f"Starting auto-update loop for {len(self.watched_stocks)} stocks")
+            while self.auto_update_running:
+                try:
+                    # Use batch update for efficiency
+                    if self.watched_stocks:
+                        self.fetch_multiple_realtime_prices(self.watched_stocks)
+                    
+                    # Sleep for interval seconds
+                    for _ in range(interval):
+                        if not self.auto_update_running:
+                            break
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    logger.error(f"Error in auto-update loop: {e}")
+                    time.sleep(interval)
+        
+        self.auto_update_thread = threading.Thread(target=update_loop, daemon=True)
+        self.auto_update_thread.start()
+        logger.info(f"Auto-update started with {interval}s interval")
+
+    def stop_auto_update(self):
+        """Stop automatic price updates."""
+        if self.auto_update_running:
+            logger.info("Stopping auto-update")
+            self.auto_update_running = False
+            if self.auto_update_thread:
+                self.auto_update_thread.join(timeout=5)
+            logger.info("Auto-update stopped")
+
+    def update_watched_stocks_list(self, stock_codes: List[str]):
+        """
+        Update the list of watched stocks for auto-update.
+        
+        Args:
+            stock_codes: New list of stock codes to monitor
+        """
+        with self.price_cache_lock:
+            self.watched_stocks = stock_codes.copy()
+        logger.info(f"Updated watched stocks list: {stock_codes}")
+
+    def get_price_with_cache(self, stock_code: str, force_refresh: bool = False) -> Dict:
+        """
+        Get price data with cache-first strategy.
+        Returns cached data immediately, then fetches new data in background if needed.
+        
+        Args:
+            stock_code: Stock code
+            force_refresh: Force fetch new data regardless of cache
+            
+        Returns:
+            Price data (from cache or fresh)
+        """
+        # Return cached data immediately if available and not forcing refresh
+        if not force_refresh:
+            cached = self.get_cached_price(stock_code)
+            if cached:
+                # Start background refresh if cache is old (>10 seconds)
+                cache_time = datetime.fromisoformat(cached['cached_at'])
+                age = (datetime.now() - cache_time).total_seconds()
+                if age > 10:
+                    # Trigger background update
+                    threading.Thread(
+                        target=self.fetch_realtime_price,
+                        args=(stock_code,),
+                        daemon=True
+                    ).start()
+                return cached
+        
+        # No cache or force refresh - fetch now
+        return self.fetch_realtime_price(stock_code) or {
+            'code': stock_code,
+            'current': 0,
+            'error': 'Failed to fetch price'
+        }

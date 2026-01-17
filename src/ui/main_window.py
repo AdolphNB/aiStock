@@ -20,7 +20,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("股票助手 (AiStockMonitor)")
-        self.resize(1280, 800)
+        
+        # Set initial window size (startup size)
+        self.resize(1400, 900)
         
         # Initialize config manager
         self.config_manager = ConfigManager()

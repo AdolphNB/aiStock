@@ -322,7 +322,18 @@ class SmartSelectionTab(QWidget):
         main_splitter.addWidget(col1_widget)
         main_splitter.addWidget(col2_widget)
         main_splitter.addWidget(col3_widget)
-        main_splitter.setSizes([300, 500, 300]) # Initial sizes
+        
+        # Set initial sizes: left panel ~320px, middle panel ~680px, right panel ~400px
+        # These proportions will be maintained on maximize
+        main_splitter.setSizes([320, 680, 400])
+        
+        # Set minimum widths to ensure reasonable display
+        col1_widget.setMinimumWidth(280)
+        col2_widget.setMinimumWidth(400)
+        col3_widget.setMinimumWidth(280)
+        
+        # Make splitter handle more visible for easy adjustment
+        main_splitter.setHandleWidth(2)
         
         layout.addWidget(main_splitter)
 

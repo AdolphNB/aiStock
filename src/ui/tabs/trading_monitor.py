@@ -9,13 +9,13 @@ from pypinyin import lazy_pinyin
 try:
     from services.llm_service import LLMService
     from services.stock_data_service import StockDataService
-    from ui.utils.worker import LLMWorker
+    from ui.utils.worker import LLMWorker, KLineWorker
     from ui.widgets.kline_chart import KLineChartWidget
 except ImportError:
     # Fallback for relative imports if run as package
     from ...services.llm_service import LLMService
     from ...services.stock_data_service import StockDataService
-    from ..utils.worker import LLMWorker
+    from ..utils.worker import LLMWorker, KLineWorker
     from ..widgets.kline_chart import KLineChartWidget
 
 class TradingMonitorTab(QWidget):
@@ -31,6 +31,7 @@ class TradingMonitorTab(QWidget):
         self.data_service = StockDataService()
         self.all_stocks = []  # Store all stocks for search
         self.mock_strategies = {}  # Store strategy details for monitored stocks
+        self.kline_worker = None  # Store K-line worker reference
         
         # Timer for refreshing realtime stock data
         self.refresh_timer = QTimer()
@@ -110,7 +111,19 @@ class TradingMonitorTab(QWidget):
         # Watchlist Table
         self.watchlist_table = QTableWidget(0, 4)
         self.watchlist_table.setHorizontalHeaderLabels(["代码", "名称", "现价", "涨跌幅"])
-        self.watchlist_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        # Set column widths: code, name get more space, price and change get fixed width
+        header = self.watchlist_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)  # Code
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)      # Name
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Price
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Change%
+        
+        # Set initial column widths
+        self.watchlist_table.setColumnWidth(0, 70)   # Code column
+        self.watchlist_table.setColumnWidth(2, 60)   # Price column
+        self.watchlist_table.setColumnWidth(3, 60)   # Change% column
+        
         self.watchlist_table.verticalHeader().setVisible(False)
         self.watchlist_table.setAlternatingRowColors(True)
         # Fix: Select entire row, disable editing
@@ -124,7 +137,9 @@ class TradingMonitorTab(QWidget):
         left_splitter = QSplitter(Qt.Orientation.Vertical)
         left_splitter.addWidget(chart_group)
         left_splitter.addWidget(watchlist_group)
-        left_splitter.setSizes([200, 400])
+        # Set sizes: chart takes ~30% height, watchlist takes ~70% height
+        # Reduce K-line chart space to minimize whitespace and show more watchlist items
+        left_splitter.setSizes([180, 450])
         
         left_layout.addWidget(left_splitter)
         
@@ -260,7 +275,8 @@ class TradingMonitorTab(QWidget):
         
         right_splitter.addWidget(preview_group)
         right_splitter.addWidget(list_group)
-        right_splitter.setSizes([300, 400])
+        # Set sizes: preview takes ~45% height, list takes ~55% height
+        right_splitter.setSizes([280, 320])
         
         right_layout.addWidget(right_splitter)
 
@@ -269,7 +285,20 @@ class TradingMonitorTab(QWidget):
         main_splitter.addWidget(middle_widget)
         main_splitter.addWidget(right_widget)
         
-        main_splitter.setSizes([250, 600, 250])
+        # Set initial sizes based on user-adjusted proportions
+        # Left panel ~280px (narrower for less K-line whitespace)
+        # Middle panel ~750px (wider for main LLM chat area)
+        # Right panel ~370px (moderate width for strategy preview)
+        # These proportions will be maintained on maximize
+        main_splitter.setSizes([300, 730, 370])
+        
+        # Set minimum widths to ensure reasonable display
+        left_widget.setMinimumWidth(220)
+        middle_widget.setMinimumWidth(400)
+        right_widget.setMinimumWidth(260)
+        
+        # Make splitter handle more visible for easy adjustment
+        main_splitter.setHandleWidth(2)
 
         layout.addWidget(main_splitter)
 
@@ -459,29 +488,43 @@ class TradingMonitorTab(QWidget):
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.watchlist_table.setItem(row, 1, name_item)
             
-            # Initialize with placeholder values
-            price_item = QTableWidgetItem("--")
-            price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.watchlist_table.setItem(row, 2, price_item)
-            
-            change_item = QTableWidgetItem("--")
-            change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.watchlist_table.setItem(row, 3, change_item)
+            # Try to get cached price first (instant display)
+            cached_price = self.data_service.get_cached_price(code)
+            if cached_price:
+                self._update_watchlist_row(row, code, cached_price)
+            else:
+                # Initialize with placeholder values
+                price_item = QTableWidgetItem("--")
+                price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.watchlist_table.setItem(row, 2, price_item)
+                
+                change_item = QTableWidgetItem("--")
+                change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.watchlist_table.setItem(row, 3, change_item)
         
-        # Update watched stocks on server
+        # Get stock codes
         stock_codes = [fav.get('code', '') for fav in favorites]
+        
+        # Update watched stocks on server (for fallback)
         self.data_service.update_watched_stocks(stock_codes)
         
-        # Start/restart timer for refreshing realtime data
+        # Start auto-update with akshare (10 seconds interval)
         if stock_codes:
+            # Stop previous auto-update if running
+            self.data_service.stop_auto_update()
+            # Start new auto-update
+            self.data_service.start_auto_update(stock_codes, interval=10)
+            
+            # Also use local timer to update UI
             self.refresh_timer.start(self.refresh_interval)
-            # Fetch immediately
+            # Fetch immediately (won't block, uses cache if available)
             self.refresh_realtime_data()
         else:
+            self.data_service.stop_auto_update()
             self.refresh_timer.stop()
     
     def refresh_realtime_data(self):
-        """Refresh realtime stock data for watchlist"""
+        """Refresh realtime stock data for watchlist using cached data"""
         # Get stock codes from watchlist
         stock_codes = []
         for row in range(self.watchlist_table.rowCount()):
@@ -492,42 +535,51 @@ class TradingMonitorTab(QWidget):
         if not stock_codes:
             return
         
-        # Fetch realtime data from server
-        realtime_data = self.data_service.fetch_realtime_stocks(stock_codes)
-        
-        # Update table with realtime data
+        # Get cached prices (instant return)
         for row in range(self.watchlist_table.rowCount()):
             code_item = self.watchlist_table.item(row, 0)
             if not code_item:
                 continue
             
             code = code_item.text()
-            if code in realtime_data:
-                data = realtime_data[code]
-                
-                # Update price
-                price = data.get('price', 0)
-                price_item = QTableWidgetItem(f"{price:.2f}")
-                price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                
-                # Update change percent
-                change_percent = data.get('change_percent', 0)
-                change_item = QTableWidgetItem(f"{change_percent:+.2f}%")
-                change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                
-                # Color based on change
-                if change_percent > 0:
-                    price_item.setForeground(QColor("#FF0000"))  # Red for up
-                    change_item.setForeground(QColor("#FF0000"))
-                elif change_percent < 0:
-                    price_item.setForeground(QColor("#00FF00"))  # Green for down
-                    change_item.setForeground(QColor("#00FF00"))
-                else:
-                    price_item.setForeground(QColor("#888888"))  # Gray for no change
-                    change_item.setForeground(QColor("#888888"))
-                
-                self.watchlist_table.setItem(row, 2, price_item)
-                self.watchlist_table.setItem(row, 3, change_item)
+            # Get cached price (returns immediately)
+            price_data = self.data_service.get_cached_price(code)
+            
+            if price_data:
+                self._update_watchlist_row(row, code, price_data)
+    
+    def _update_watchlist_row(self, row: int, code: str, price_data: dict):
+        """Update a single watchlist row with price data"""
+        try:
+            # Update price
+            price = price_data.get('current', 0)
+            price_item = QTableWidgetItem(f"{price:.2f}")
+            price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # Update change percent
+            change_percent = price_data.get('percent', 0)
+            change_item = QTableWidgetItem(f"{change_percent:+.2f}%")
+            change_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # Color based on change
+            if change_percent > 0:
+                price_item.setForeground(QColor("#FF0000"))  # Red for up
+                change_item.setForeground(QColor("#FF0000"))
+            elif change_percent < 0:
+                price_item.setForeground(QColor("#00FF00"))  # Green for down
+                change_item.setForeground(QColor("#00FF00"))
+            else:
+                price_item.setForeground(QColor("#888888"))  # Gray for no change
+                change_item.setForeground(QColor("#888888"))
+            
+            # Add cache indicator if data is from cache
+            if price_data.get('from_cache', False):
+                price_item.setToolTip("缓存数据")
+            
+            self.watchlist_table.setItem(row, 2, price_item)
+            self.watchlist_table.setItem(row, 3, change_item)
+        except Exception as e:
+            print(f"Error updating row {row} for {code}: {e}")
     
     def add_monitor_sample_data(self):
         """Add sample data to monitor list"""
@@ -587,21 +639,31 @@ class TradingMonitorTab(QWidget):
             self.chat_history.append(f"<b>[系统]</b> 已选择 {name} ({code})。")
     
     def load_kline_chart(self, stock_code: str, stock_name: str):
-        """Load K-line chart for selected stock"""
+        """Load K-line chart for selected stock asynchronously"""
+        # Cancel previous worker if still running
+        if self.kline_worker and self.kline_worker.isRunning():
+            self.kline_worker.terminate()
+            self.kline_worker.wait()
+        
+        # Create and start worker thread
+        self.kline_worker = KLineWorker(self.data_service, stock_code, stock_name, 
+                                       period="daily", adjust="qfq", days=60)
+        self.kline_worker.finished.connect(self.on_kline_loaded)
+        self.kline_worker.error.connect(self.on_kline_error)
+        self.kline_worker.start()
+    
+    def on_kline_loaded(self, stock_code: str, stock_name: str, kline_data: list):
+        """Handle K-line data loaded successfully"""
         try:
-            # Fetch K-line data from server
-            kline_data = self.data_service.fetch_kline_data(stock_code, period="daily", adjust="qfq", days=60)
-            
-            if kline_data:
-                # Update chart
-                self.kline_chart.update_chart(stock_code, stock_name, kline_data)
-            else:
-                # Clear chart if no data
-                self.kline_chart.clear_chart()
-                QMessageBox.warning(self, "提示", f"无法获取 {stock_name} 的K线数据")
+            self.kline_chart.update_chart(stock_code, stock_name, kline_data)
         except Exception as e:
-            self.kline_chart.clear_chart()
-            QMessageBox.warning(self, "错误", f"加载K线数据失败: {str(e)}")
+            print(f"Error updating chart: {e}")
+    
+    def on_kline_error(self, stock_name: str, error_message: str):
+        """Handle K-line loading error"""
+        self.kline_chart.clear_chart()
+        # Don't show message box, just print to console to avoid UI blocking
+        print(f"K-line loading error for {stock_name}: {error_message}")
 
     def on_send_message(self):
         user_input = self.chat_input.toPlainText().strip()
