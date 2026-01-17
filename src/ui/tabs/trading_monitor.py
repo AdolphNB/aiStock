@@ -114,19 +114,11 @@ class TradingMonitorTab(QWidget):
         self.watchlist_table.itemClicked.connect(self.on_stock_selected)
         watchlist_layout.addWidget(self.watchlist_table)
         
-        # Mini Chart
-        chart_group = QGroupBox("K线预览")
-        chart_layout = QVBoxLayout(chart_group)
-        
-        # Replace placeholder with actual K-line chart widget
+        # Mini Chart - Compact version
         self.kline_chart = KLineChartWidget()
-        chart_layout.addWidget(self.kline_chart)
+        watchlist_layout.addWidget(self.kline_chart)
         
-        # Splitter for Left Area
-        left_splitter = QSplitter(Qt.Orientation.Vertical)
-        left_splitter.addWidget(chart_group)
-        left_splitter.addWidget(watchlist_group)
-        left_layout.addWidget(left_splitter)
+        left_layout.addWidget(watchlist_group)
         
         # --- Middle Area: LLM Chat ---
         middle_widget = QWidget()

@@ -2,21 +2,21 @@
 K-line chart widget using pyqtgraph
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
-import pyqtgraph as pg
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QColor, QPixmap, QPainter, QPen, QBrush, QImage
 import numpy as np
 from datetime import datetime
 from typing import List, Dict, Optional
 
 class KLineChartWidget(QWidget):
-    """K-line chart widget with volume bars and moving averages"""
+    """Compact K-line chart widget with thumbnail preview"""
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, compact_mode=True):
         super().__init__(parent)
         self.kline_data = []
         self.stock_code = ""
         self.stock_name = ""
+        self.compact_mode = compact_mode
         self.init_ui()
     
     def init_ui(self):
@@ -27,28 +27,18 @@ class KLineChartWidget(QWidget):
         # Title label
         self.title_label = QLabel("K线预览")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
+        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #333;")
         layout.addWidget(self.title_label)
         
-        # Create graphics layout widget
-        self.graphics_layout = pg.GraphicsLayoutWidget()
-        self.graphics_layout.setBackground('w')
+        # Image label for static preview
+        self.chart_label = QLabel()
+        self.chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.chart_label.setMinimumHeight(120)
+        self.chart_label.setMaximumHeight(120)
+        self.chart_label.setStyleSheet("background-color: white; border: 1px solid #ccc;")
+        self.chart_label.setText("未加载数据")
         
-        # K-line plot (main chart)
-        self.kline_plot = self.graphics_layout.addPlot(row=0, col=0)
-        self.kline_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.kline_plot.setLabel('left', '价格', units='元')
-        
-        # Volume plot
-        self.volume_plot = self.graphics_layout.addPlot(row=1, col=0)
-        self.volume_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.volume_plot.setLabel('left', '成交量', units='手')
-        self.volume_plot.setLabel('bottom', '日期')
-        
-        # Link x-axis
-        self.volume_plot.setXLink(self.kline_plot)
-        
-        layout.addWidget(self.graphics_layout)
+        layout.addWidget(self.chart_label)
         
     def calculate_ma(self, close_prices: np.ndarray, period: int) -> np.ndarray:
         """Calculate moving average"""
@@ -76,22 +66,55 @@ class KLineChartWidget(QWidget):
             return
         
         # Update title
-        self.title_label.setText(f"{stock_name} ({stock_code}) - 最近{len(kline_data)}日K线")
+        self.title_label.setText(f"{stock_name}({stock_code})")
         
-        # Clear previous plots
-        self.kline_plot.clear()
-        self.volume_plot.clear()
-        
+        # Generate static chart image
+        self.render_compact_chart(kline_data)
+    
+    def render_compact_chart(self, kline_data: List[Dict]):
+        """Render a compact static K-line chart image"""
         # Prepare data
         n = len(kline_data)
-        x = np.arange(n)
+        if n == 0:
+            return
+        
+        # Limit to last 30 days for compact view
+        if n > 30:
+            kline_data = kline_data[-30:]
+            n = 30
         
         opens = np.array([d['open'] for d in kline_data])
         closes = np.array([d['close'] for d in kline_data])
         highs = np.array([d['high'] for d in kline_data])
         lows = np.array([d['low'] for d in kline_data])
-        volumes = np.array([d['volume'] for d in kline_data])
-        dates = [d['date'] for d in kline_data]
+        
+        # Calculate price range
+        max_price = np.max(highs)
+        min_price = np.min(lows)
+        price_range = max_price - min_price
+        if price_range == 0:
+            price_range = max_price * 0.1 if max_price > 0 else 1
+        
+        # Calculate moving averages
+        ma5 = self.calculate_ma(closes, 5)
+        ma10 = self.calculate_ma(closes, 10)
+        
+        # Create image
+        img_width = self.width() if self.width() > 100 else 400
+        img_height = 120
+        padding = 10
+        chart_width = img_width - 2 * padding
+        chart_height = img_height - 2 * padding
+        
+        image = QImage(img_width, img_height, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.white)
+        
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Calculate bar width
+        bar_width = max(2, chart_width // (n * 2))
+        spacing = chart_width / n
         
         # Draw K-line candles
         for i in range(n):
@@ -100,89 +123,63 @@ class KLineChartWidget(QWidget):
             high_price = highs[i]
             low_price = lows[i]
             
-            # Determine color (red for up, green for down)
+            # Calculate positions
+            x = padding + i * spacing + spacing / 2
+            y_high = padding + chart_height - ((high_price - min_price) / price_range * chart_height)
+            y_low = padding + chart_height - ((low_price - min_price) / price_range * chart_height)
+            y_open = padding + chart_height - ((open_price - min_price) / price_range * chart_height)
+            y_close = padding + chart_height - ((close_price - min_price) / price_range * chart_height)
+            
+            # Determine color (red for up, green for down in China)
             is_up = close_price >= open_price
-            color = (255, 0, 0, 200) if is_up else (0, 255, 0, 200)  # Red/Green
+            color = QColor(255, 0, 0) if is_up else QColor(0, 180, 0)
             
             # Draw high-low line
-            line = pg.PlotDataItem([i, i], [low_price, high_price], 
-                                  pen=pg.mkPen(color=color, width=1))
-            self.kline_plot.addItem(line)
+            painter.setPen(QPen(color, 1))
+            painter.drawLine(int(x), int(y_high), int(x), int(y_low))
             
             # Draw open-close box
-            box_height = abs(close_price - open_price)
-            if box_height < 0.01:  # Avoid zero height
-                box_height = 0.01
+            box_height = abs(y_close - y_open)
+            if box_height < 1:
+                box_height = 1
+            box_y = min(y_open, y_close)
             
-            box_y = min(open_price, close_price)
-            box = pg.BarGraphItem(x=[i], height=[box_height], y0=[box_y], 
-                                 width=0.6, brush=color, pen=color)
-            self.kline_plot.addItem(box)
+            painter.setBrush(QBrush(color))
+            painter.drawRect(int(x - bar_width/2), int(box_y), int(bar_width), int(box_height))
         
-        # Calculate and draw moving averages
-        ma5 = self.calculate_ma(closes, 5)
-        ma10 = self.calculate_ma(closes, 10)
-        ma20 = self.calculate_ma(closes, 20)
-        ma60 = self.calculate_ma(closes, 60)
+        # Draw moving average lines
+        # MA5 - Yellow
+        if not np.all(np.isnan(ma5)):
+            painter.setPen(QPen(QColor(255, 200, 0), 1.5))
+            for i in range(1, n):
+                if not np.isnan(ma5[i-1]) and not np.isnan(ma5[i]):
+                    x1 = padding + (i-1) * spacing + spacing / 2
+                    y1 = padding + chart_height - ((ma5[i-1] - min_price) / price_range * chart_height)
+                    x2 = padding + i * spacing + spacing / 2
+                    y2 = padding + chart_height - ((ma5[i] - min_price) / price_range * chart_height)
+                    painter.drawLine(int(x1), int(y1), int(x2), int(y2))
         
-        # Plot MAs
-        self.kline_plot.plot(x, ma5, pen=pg.mkPen(color=(255, 255, 0), width=1), name='MA5')
-        self.kline_plot.plot(x, ma10, pen=pg.mkPen(color=(255, 0, 255), width=1), name='MA10')
-        self.kline_plot.plot(x, ma20, pen=pg.mkPen(color=(0, 255, 255), width=1), name='MA20')
-        self.kline_plot.plot(x, ma60, pen=pg.mkPen(color=(128, 128, 128), width=1), name='MA60')
+        # MA10 - Blue
+        if not np.all(np.isnan(ma10)):
+            painter.setPen(QPen(QColor(0, 120, 255), 1.5))
+            for i in range(1, n):
+                if not np.isnan(ma10[i-1]) and not np.isnan(ma10[i]):
+                    x1 = padding + (i-1) * spacing + spacing / 2
+                    y1 = padding + chart_height - ((ma10[i-1] - min_price) / price_range * chart_height)
+                    x2 = padding + i * spacing + spacing / 2
+                    y2 = padding + chart_height - ((ma10[i] - min_price) / price_range * chart_height)
+                    painter.drawLine(int(x1), int(y1), int(x2), int(y2))
         
-        # Draw volume bars
-        volume_colors = [(255, 0, 0, 150) if closes[i] >= opens[i] else (0, 255, 0, 150) 
-                        for i in range(n)]
+        painter.end()
         
-        for i in range(n):
-            bar = pg.BarGraphItem(x=[i], height=[volumes[i]], width=0.6, 
-                                 brush=volume_colors[i], pen=volume_colors[i])
-            self.volume_plot.addItem(bar)
-        
-        # Set up x-axis labels (show dates at intervals)
-        if n > 0:
-            # Show labels at intervals
-            interval = max(1, n // 10)
-            ticks = []
-            for i in range(0, n, interval):
-                # Format date
-                date_str = dates[i]
-                if isinstance(date_str, str):
-                    # Extract month-day if format is YYYY-MM-DD
-                    try:
-                        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                        label = date_obj.strftime('%m-%d')
-                    except:
-                        label = date_str[-5:]  # Last 5 chars (MM-DD)
-                else:
-                    label = str(date_str)
-                ticks.append((i, label))
-            
-            # Add last date
-            if (n - 1) not in [t[0] for t in ticks]:
-                date_str = dates[-1]
-                if isinstance(date_str, str):
-                    try:
-                        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                        label = date_obj.strftime('%m-%d')
-                    except:
-                        label = date_str[-5:]
-                else:
-                    label = str(date_str)
-                ticks.append((n - 1, label))
-            
-            axis = self.volume_plot.getAxis('bottom')
-            axis.setTicks([ticks])
-        
-        # Auto range
-        self.kline_plot.enableAutoRange()
-        self.volume_plot.enableAutoRange()
+        # Convert to pixmap and display
+        pixmap = QPixmap.fromImage(image)
+        self.chart_label.setPixmap(pixmap)
     
     def clear_chart(self):
         """Clear the chart"""
-        self.kline_plot.clear()
-        self.volume_plot.clear()
+        self.chart_label.clear()
+        self.chart_label.setText("未加载数据")
         self.title_label.setText("K线预览")
         self.stock_code = ""
         self.stock_name = ""
