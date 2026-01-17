@@ -27,15 +27,15 @@ class KLineChartWidget(QWidget):
         # Title label
         self.title_label = QLabel("K线预览")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #333;")
+        self.title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #00FF00;")
         layout.addWidget(self.title_label)
         
         # Image label for static preview
         self.chart_label = QLabel()
         self.chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.chart_label.setMinimumHeight(120)
-        self.chart_label.setMaximumHeight(120)
-        self.chart_label.setStyleSheet("background-color: white; border: 1px solid #ccc;")
+        self.chart_label.setMinimumHeight(180)
+        self.chart_label.setMaximumHeight(180)
+        self.chart_label.setStyleSheet("background-color: black; border: 1px solid #333;")
         self.chart_label.setText("未加载数据")
         
         layout.addWidget(self.chart_label)
@@ -72,7 +72,7 @@ class KLineChartWidget(QWidget):
         self.render_compact_chart(kline_data)
     
     def render_compact_chart(self, kline_data: List[Dict]):
-        """Render a compact static K-line chart image"""
+        """Render a compact static K-line chart image with volume"""
         # Prepare data
         n = len(kline_data)
         if n == 0:
@@ -87,6 +87,7 @@ class KLineChartWidget(QWidget):
         closes = np.array([d['close'] for d in kline_data])
         highs = np.array([d['high'] for d in kline_data])
         lows = np.array([d['low'] for d in kline_data])
+        volumes = np.array([d.get('volume', 0) for d in kline_data])
         
         # Calculate price range
         max_price = np.max(highs)
@@ -95,19 +96,27 @@ class KLineChartWidget(QWidget):
         if price_range == 0:
             price_range = max_price * 0.1 if max_price > 0 else 1
         
+        # Calculate volume range
+        max_volume = np.max(volumes) if len(volumes) > 0 else 1
+        if max_volume == 0:
+            max_volume = 1
+        
         # Calculate moving averages
         ma5 = self.calculate_ma(closes, 5)
         ma10 = self.calculate_ma(closes, 10)
         
         # Create image
         img_width = self.width() if self.width() > 100 else 400
-        img_height = 120
+        img_height = 180
         padding = 10
         chart_width = img_width - 2 * padding
-        chart_height = img_height - 2 * padding
+        
+        # Divide height: 70% for K-line, 30% for volume
+        kline_height = int((img_height - 3 * padding) * 0.7)
+        volume_height = int((img_height - 3 * padding) * 0.3)
         
         image = QImage(img_width, img_height, QImage.Format.Format_RGB32)
-        image.fill(Qt.GlobalColor.white)
+        image.fill(Qt.GlobalColor.black)
         
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -125,14 +134,14 @@ class KLineChartWidget(QWidget):
             
             # Calculate positions
             x = padding + i * spacing + spacing / 2
-            y_high = padding + chart_height - ((high_price - min_price) / price_range * chart_height)
-            y_low = padding + chart_height - ((low_price - min_price) / price_range * chart_height)
-            y_open = padding + chart_height - ((open_price - min_price) / price_range * chart_height)
-            y_close = padding + chart_height - ((close_price - min_price) / price_range * chart_height)
+            y_high = padding + kline_height - ((high_price - min_price) / price_range * kline_height)
+            y_low = padding + kline_height - ((low_price - min_price) / price_range * kline_height)
+            y_open = padding + kline_height - ((open_price - min_price) / price_range * kline_height)
+            y_close = padding + kline_height - ((close_price - min_price) / price_range * kline_height)
             
             # Determine color (red for up, green for down in China)
             is_up = close_price >= open_price
-            color = QColor(255, 0, 0) if is_up else QColor(0, 180, 0)
+            color = QColor(255, 50, 50) if is_up else QColor(0, 200, 0)
             
             # Draw high-low line
             painter.setPen(QPen(color, 1))
@@ -154,21 +163,39 @@ class KLineChartWidget(QWidget):
             for i in range(1, n):
                 if not np.isnan(ma5[i-1]) and not np.isnan(ma5[i]):
                     x1 = padding + (i-1) * spacing + spacing / 2
-                    y1 = padding + chart_height - ((ma5[i-1] - min_price) / price_range * chart_height)
+                    y1 = padding + kline_height - ((ma5[i-1] - min_price) / price_range * kline_height)
                     x2 = padding + i * spacing + spacing / 2
-                    y2 = padding + chart_height - ((ma5[i] - min_price) / price_range * chart_height)
+                    y2 = padding + kline_height - ((ma5[i] - min_price) / price_range * kline_height)
                     painter.drawLine(int(x1), int(y1), int(x2), int(y2))
         
-        # MA10 - Blue
+        # MA10 - Cyan
         if not np.all(np.isnan(ma10)):
-            painter.setPen(QPen(QColor(0, 120, 255), 1.5))
+            painter.setPen(QPen(QColor(0, 200, 255), 1.5))
             for i in range(1, n):
                 if not np.isnan(ma10[i-1]) and not np.isnan(ma10[i]):
                     x1 = padding + (i-1) * spacing + spacing / 2
-                    y1 = padding + chart_height - ((ma10[i-1] - min_price) / price_range * chart_height)
+                    y1 = padding + kline_height - ((ma10[i-1] - min_price) / price_range * kline_height)
                     x2 = padding + i * spacing + spacing / 2
-                    y2 = padding + chart_height - ((ma10[i] - min_price) / price_range * chart_height)
+                    y2 = padding + kline_height - ((ma10[i] - min_price) / price_range * kline_height)
                     painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+        
+        # Draw volume bars
+        volume_top = padding + kline_height + padding
+        for i in range(n):
+            volume = volumes[i]
+            x = padding + i * spacing + spacing / 2
+            
+            # Calculate bar height
+            bar_height = (volume / max_volume) * volume_height
+            bar_y = volume_top + volume_height - bar_height
+            
+            # Color based on price movement
+            is_up = closes[i] >= opens[i]
+            volume_color = QColor(255, 50, 50, 180) if is_up else QColor(0, 200, 0, 180)
+            
+            painter.setBrush(QBrush(volume_color))
+            painter.setPen(QPen(volume_color, 1))
+            painter.drawRect(int(x - bar_width/2), int(bar_y), int(bar_width), int(bar_height))
         
         painter.end()
         
